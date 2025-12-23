@@ -26,6 +26,9 @@ outputs:
   bundle-size:
     description: 'Size of the bundle in bytes'
     value: ${{ steps.pack.outputs.size }}
+  bundle-sha256:
+    description: 'SHA256 hash of the bundle for integrity verification'
+    value: ${{ steps.pack.outputs.sha256 }}
 
 runs:
   using: 'composite'
@@ -92,6 +95,12 @@ runs:
         mcpb pack . "$OUTPUT"
 
         SIZE=$(stat -f%z "$OUTPUT" 2>/dev/null || stat -c%s "$OUTPUT")
+        # Compute SHA256 (shasum on macOS, sha256sum on Linux)
+        SHA256=$(shasum -a 256 "$OUTPUT" 2>/dev/null || sha256sum "$OUTPUT" | cut -d' ' -f1)
+        SHA256=$(echo "$SHA256" | cut -d' ' -f1)
+
         echo "path=$OUTPUT" >> $GITHUB_OUTPUT
         echo "size=$SIZE" >> $GITHUB_OUTPUT
+        echo "sha256=$SHA256" >> $GITHUB_OUTPUT
         echo "Bundle size: $(du -h "$OUTPUT" | cut -f1)"
+        echo "Bundle SHA256: $SHA256"
