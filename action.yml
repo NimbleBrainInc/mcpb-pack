@@ -1,5 +1,5 @@
 name: 'MCPB Pack'
-description: 'Package MCP servers into .mcpb bundles using the official mcpb CLI'
+description: 'Package MCP servers into .mcpb bundles with vendored dependencies'
 author: 'NimbleBrain Inc'
 
 branding:
@@ -12,13 +12,20 @@ inputs:
     required: false
     default: '.'
   output:
-    description: 'Output filename for the .mcpb bundle (defaults to extension.mcpb)'
+    description: 'Output filename for the .mcpb bundle'
     required: false
+  python-version:
+    description: 'Python version for vendoring deps (if Python server)'
+    required: false
+    default: '3.13'
 
 outputs:
   bundle-path:
     description: 'Path to the generated .mcpb file'
     value: ${{ steps.pack.outputs.path }}
+  bundle-size:
+    description: 'Size of the bundle in bytes'
+    value: ${{ steps.pack.outputs.size }}
 
 runs:
   using: 'composite'
@@ -28,19 +35,63 @@ runs:
       with:
         node-version: '22'
 
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+
     - name: Install mcpb CLI
       shell: bash
       run: npm install -g @anthropic-ai/mcpb
+
+    - name: Vendor dependencies
+      shell: bash
+      run: |
+        cd "${{ inputs.directory }}"
+
+        # Detect runtime from manifest
+        RUNTIME=$(jq -r '.server.type // "unknown"' manifest.json)
+        echo "Detected runtime: $RUNTIME"
+
+        if [ "$RUNTIME" = "python" ]; then
+          echo "Vendoring Python dependencies..."
+          rm -rf deps/
+          uv pip install --target ./deps --only-binary :all: . 2>/dev/null || \
+          uv pip install --target ./deps .
+
+          # Show what was installed
+          echo "Vendored packages:"
+          ls -la deps/ | head -20
+          du -sh deps/
+        elif [ "$RUNTIME" = "node" ]; then
+          echo "Vendoring Node.js dependencies..."
+          rm -rf node_modules/
+          npm install --omit=dev --prefix .
+
+          echo "Vendored packages:"
+          du -sh node_modules/
+        else
+          echo "Unknown runtime: $RUNTIME, skipping dependency vendoring"
+        fi
 
     - name: Pack bundle
       id: pack
       shell: bash
       run: |
         cd "${{ inputs.directory }}"
+
         if [ -n "${{ inputs.output }}" ]; then
-          mcpb pack . "${{ inputs.output }}"
-          echo "path=${{ inputs.output }}" >> $GITHUB_OUTPUT
+          OUTPUT="${{ inputs.output }}"
         else
-          mcpb pack .
-          echo "path=extension.mcpb" >> $GITHUB_OUTPUT
+          OUTPUT="extension.mcpb"
         fi
+
+        mcpb pack . "$OUTPUT"
+
+        SIZE=$(stat -f%z "$OUTPUT" 2>/dev/null || stat -c%s "$OUTPUT")
+        echo "path=$OUTPUT" >> $GITHUB_OUTPUT
+        echo "size=$SIZE" >> $GITHUB_OUTPUT
+        echo "Bundle size: $(du -h "$OUTPUT" | cut -f1)"
