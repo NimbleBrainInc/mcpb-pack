@@ -62,9 +62,9 @@ runs:
           uv pip install --target ./deps --only-binary :all: . 2>/dev/null || \
           uv pip install --target ./deps .
 
-          # Show what was installed
+          # Show what was installed (use || true to avoid SIGPIPE errors)
           echo "Vendored packages:"
-          ls -la deps/ | head -20
+          ls deps/ | head -20 || true
           du -sh deps/
         elif [ "$RUNTIME" = "node" ]; then
           echo "Vendoring Node.js dependencies..."
