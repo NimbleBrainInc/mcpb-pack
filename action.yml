@@ -1,0 +1,46 @@
+name: 'MCPB Pack'
+description: 'Package MCP servers into .mcpb bundles using the official mcpb CLI'
+author: 'NimbleBrain Inc'
+
+branding:
+  icon: 'package'
+  color: 'blue'
+
+inputs:
+  directory:
+    description: 'Directory containing the MCP server and manifest.json'
+    required: false
+    default: '.'
+  output:
+    description: 'Output filename for the .mcpb bundle (defaults to extension.mcpb)'
+    required: false
+
+outputs:
+  bundle-path:
+    description: 'Path to the generated .mcpb file'
+    value: ${{ steps.pack.outputs.path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Install mcpb CLI
+      shell: bash
+      run: npm install -g @anthropic-ai/mcpb
+
+    - name: Pack bundle
+      id: pack
+      shell: bash
+      run: |
+        cd "${{ inputs.directory }}"
+        if [ -n "${{ inputs.output }}" ]; then
+          mcpb pack . "${{ inputs.output }}"
+          echo "path=${{ inputs.output }}" >> $GITHUB_OUTPUT
+        else
+          mcpb pack .
+          echo "path=extension.mcpb" >> $GITHUB_OUTPUT
+        fi
