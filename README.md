@@ -1,11 +1,15 @@
-# MCPB Pack Action
+# MCPB Pack
+
+[![Test](https://github.com/NimbleBrainInc/mcpb-pack/actions/workflows/test.yml/badge.svg)](https://github.com/NimbleBrainInc/mcpb-pack/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub release](https://img.shields.io/github/v/release/NimbleBrainInc/mcpb-pack)](https://github.com/NimbleBrainInc/mcpb-pack/releases)
 
 A GitHub Action to package MCP servers into `.mcpb` bundles using the official [mcpb CLI](https://github.com/modelcontextprotocol/mcpb).
 
 ## Usage
 
 ```yaml
-- uses: NimbleBrainInc/mcpb-pack-action@v1
+- uses: NimbleBrainInc/mcpb-pack@v1
   with:
     output: my-server-v1.0.0.mcpb
 ```
@@ -39,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: NimbleBrainInc/mcpb-pack-action@v1
+      - uses: NimbleBrainInc/mcpb-pack@v1
         id: pack
         with:
           output: my-server-${{ github.ref_name }}.mcpb
@@ -70,7 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: NimbleBrainInc/mcpb-pack-action@v1
+      - uses: NimbleBrainInc/mcpb-pack@v1
         with:
           output: my-server-${{ github.ref_name }}-linux-${{ matrix.arch }}.mcpb
 

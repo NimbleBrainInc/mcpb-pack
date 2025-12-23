@@ -1,0 +1,56 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test manifest
+        run: |
+          cat > manifest.json << 'EOF'
+          {
+            "manifest_version": "0.3",
+            "name": "test/example",
+            "version": "1.0.0",
+            "description": "Test extension",
+            "author": { "name": "Test" },
+            "server": {
+              "type": "python",
+              "entry_point": "server.py",
+              "mcp_config": {
+                "command": "python",
+                "args": ["${__dirname}/server.py"]
+              }
+            }
+          }
+          EOF
+          echo 'print("hello")' > server.py
+
+      - name: Test action
+        id: pack
+        uses: ./
+        with:
+          output: test-${{ matrix.arch }}.mcpb
+
+      - name: Verify output
+        run: |
+          if [ ! -f "${{ steps.pack.outputs.bundle-path }}" ]; then
+            echo "Bundle not found: ${{ steps.pack.outputs.bundle-path }}"
+            exit 1
+          fi
+          echo "Bundle created: $(ls -lh ${{ steps.pack.outputs.bundle-path }})"
+          unzip -l "${{ steps.pack.outputs.bundle-path }}"
