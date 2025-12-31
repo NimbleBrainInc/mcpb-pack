@@ -75,6 +75,7 @@ jobs:
         uses: ./
         with:
           output: test-${{ matrix.arch }}.mcpb
+          announce: false  # Don't announce test builds
 
       - name: Verify bundle
         run: |
