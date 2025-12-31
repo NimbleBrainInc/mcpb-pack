@@ -1,62 +1,85 @@
-name: 'MCPB Pack'
-description: 'Package MCP servers into .mcpb bundles with vendored dependencies'
-author: 'NimbleBrain Inc'
+name: "MCPB Pack"
+description: "Package MCP servers into .mcpb bundles and announce to registry"
+author: "NimbleBrain Inc"
 
 branding:
-  icon: 'package'
-  color: 'blue'
+  icon: "package"
+  color: "blue"
 
 inputs:
   directory:
-    description: 'Directory containing the MCP server and manifest.json'
+    description: "Directory containing the MCP server and manifest.json"
     required: false
-    default: '.'
+    default: "."
   output:
-    description: 'Output filename for the .mcpb bundle'
+    description: "Output filename for the .mcpb bundle"
     required: false
   python-version:
-    description: 'Python version for vendoring deps (if Python server)'
+    description: "Python version for vendoring deps (if Python server)"
     required: false
-    default: '3.13'
+    default: "3.13"
+  build:
+    description: "Whether to build the .mcpb bundle (set to false for announce-only)"
+    required: false
+    default: "true"
+  announce:
+    description: "Whether to announce the bundle to the registry"
+    required: false
+    default: "true"
+  announce-url:
+    description: "URL of the mpak registry announce endpoint"
+    required: false
+    default: "https://api.mpak.dev/v1/bundles/announce"
+  bundle-url:
+    description: "URL of existing .mcpb bundle (for announce-only mode). If not provided, auto-detects from latest release."
+    required: false
 
 outputs:
   bundle-path:
-    description: 'Path to the generated .mcpb file'
+    description: "Path to the generated .mcpb file"
     value: ${{ steps.pack.outputs.path }}
   bundle-size:
-    description: 'Size of the bundle in bytes'
+    description: "Size of the bundle in bytes"
     value: ${{ steps.pack.outputs.size }}
   bundle-sha256:
-    description: 'SHA256 hash of the bundle for integrity verification'
+    description: "SHA256 hash of the bundle for integrity verification"
     value: ${{ steps.pack.outputs.sha256 }}
+  announced:
+    description: "Whether the bundle was announced successfully"
+    value: ${{ steps.announce.outputs.announced }}
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
     - name: Setup Node.js
+      if: inputs.build == 'true'
       uses: actions/setup-node@v4
       with:
-        node-version: '22'
+        node-version: "22"
 
     - name: Setup Python
+      if: inputs.build == 'true'
       uses: actions/setup-python@v5
       with:
         python-version: ${{ inputs.python-version }}
 
     - name: Install uv
+      if: inputs.build == 'true'
       uses: astral-sh/setup-uv@v4
 
     - name: Install mcpb CLI
+      if: inputs.build == 'true'
       shell: bash
       run: npm install -g @anthropic-ai/mcpb
 
     - name: Vendor dependencies
+      if: inputs.build == 'true'
       shell: bash
       run: |
         cd "${{ inputs.directory }}"
 
         # Detect runtime from manifest
-        RUNTIME=$(jq -r '.server.type // "unknown"' manifest.json)
+        RUNTIME=$(jq -r '.server.type // .server.runtime // "unknown"' manifest.json)
         echo "Detected runtime: $RUNTIME"
 
         if [ "$RUNTIME" = "python" ]; then
@@ -82,6 +105,7 @@ runs:
 
     - name: Pack bundle
       id: pack
+      if: inputs.build == 'true'
       shell: bash
       run: |
         cd "${{ inputs.directory }}"
@@ -95,7 +119,6 @@ runs:
         mcpb pack . "$OUTPUT"
 
         SIZE=$(stat -f%z "$OUTPUT" 2>/dev/null || stat -c%s "$OUTPUT")
-        # Compute SHA256 (shasum on macOS, sha256sum on Linux)
         SHA256=$(shasum -a 256 "$OUTPUT" 2>/dev/null || sha256sum "$OUTPUT" | cut -d' ' -f1)
         SHA256=$(echo "$SHA256" | cut -d' ' -f1)
 
@@ -104,3 +127,116 @@ runs:
         echo "sha256=$SHA256" >> $GITHUB_OUTPUT
         echo "Bundle size: $(du -h "$OUTPUT" | cut -f1)"
         echo "Bundle SHA256: $SHA256"
+
+    - name: Detect existing bundle
+      id: detect
+      if: inputs.build == 'false' && inputs.announce == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        cd "${{ inputs.directory }}"
+
+        if [ -n "${{ inputs.bundle-url }}" ]; then
+          echo "Using provided bundle URL"
+          echo "bundle_url=${{ inputs.bundle-url }}" >> $GITHUB_OUTPUT
+        else
+          echo "Auto-detecting bundle from latest release..."
+
+          # Get latest release assets
+          RELEASE_DATA=$(gh release view --json assets,tagName 2>/dev/null || echo '{"assets":[]}')
+          TAG=$(echo "$RELEASE_DATA" | jq -r '.tagName // "unknown"')
+
+          # Find .mcpb asset
+          BUNDLE_URL=$(echo "$RELEASE_DATA" | jq -r '.assets[] | select(.name | endswith(".mcpb")) | .url' | head -1)
+          BUNDLE_NAME=$(echo "$RELEASE_DATA" | jq -r '.assets[] | select(.name | endswith(".mcpb")) | .name' | head -1)
+
+          if [ -z "$BUNDLE_URL" ] || [ "$BUNDLE_URL" = "null" ]; then
+            echo "::error::No .mcpb bundle found in latest release"
+            exit 1
+          fi
+
+          echo "Found bundle: $BUNDLE_NAME (tag: $TAG)"
+          echo "bundle_url=$BUNDLE_URL" >> $GITHUB_OUTPUT
+          echo "bundle_name=$BUNDLE_NAME" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+        fi
+
+        # Read manifest for metadata
+        if [ -f "manifest.json" ]; then
+          NAME=$(jq -r '.name // "unknown"' manifest.json)
+          VERSION=$(jq -r '.version // "unknown"' manifest.json)
+          DESCRIPTION=$(jq -r '.description // ""' manifest.json)
+
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Get OIDC Token
+      id: oidc
+      if: inputs.announce == 'true'
+      shell: bash
+      run: |
+        TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://www.mpak.dev" | jq -r '.value')
+
+        if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
+          echo "::error::Failed to get OIDC token. Ensure 'permissions: id-token: write' is set."
+          exit 1
+        fi
+
+        echo "::add-mask::$TOKEN"
+        echo "token=$TOKEN" >> $GITHUB_OUTPUT
+
+    - name: Announce bundle
+      id: announce
+      if: inputs.announce == 'true'
+      shell: bash
+      env:
+        OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+      run: |
+        cd "${{ inputs.directory }}"
+
+        # Read manifest
+        NAME=$(jq -r '.name // "unknown"' manifest.json)
+        VERSION=$(jq -r '.version // "unknown"' manifest.json)
+        RELEASE_TAG="${{ github.ref_name }}"
+
+        # Build announce payload (mpak API format)
+        PAYLOAD=$(jq -n \
+          --arg name "$NAME" \
+          --arg version "$VERSION" \
+          --slurpfile manifest manifest.json \
+          --arg release_tag "$RELEASE_TAG" \
+          '{
+            name: $name,
+            version: $version,
+            manifest: $manifest[0],
+            release_tag: $release_tag
+          }')
+
+        echo "Announcing $NAME v$VERSION to ${{ inputs.announce-url }}"
+        echo "$PAYLOAD" | jq .
+
+        # Make announce request with OIDC token
+        RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ inputs.announce-url }}" \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer $OIDC_TOKEN" \
+          -d "$PAYLOAD")
+
+        HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+
+        echo "HTTP Status: $HTTP_CODE"
+
+        if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+          echo "announced=true" >> $GITHUB_OUTPUT
+          echo "✅ Bundle announced successfully"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+        else
+          echo "announced=false" >> $GITHUB_OUTPUT
+          echo "::error::Failed to announce bundle (HTTP $HTTP_CODE)"
+          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+          exit 1
+        fi
