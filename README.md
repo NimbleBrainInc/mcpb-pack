@@ -4,29 +4,119 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub release](https://img.shields.io/github/v/release/NimbleBrainInc/mcpb-pack)](https://github.com/NimbleBrainInc/mcpb-pack/releases)
 
-A GitHub Action to package MCP servers into `.mcpb` bundles and announce them to the [mpak registry](https://www.mpak.dev).
+A GitHub Action to package MCP servers into `.mcpb` bundles, upload them to releases, and announce them to the [mpak registry](https://www.mpak.dev).
 
 ## Features
 
 - **Build**: Package MCP servers with vendored dependencies into portable `.mcpb` bundles
-- **Announce** (optional): Register bundles with the [mpak registry](https://www.mpak.dev) for public discovery
-- **Flexible**: Build + announce, build only, or announce-only modes
+- **Upload**: Automatically upload bundles to GitHub releases
+- **Announce**: Register bundles with the [mpak registry](https://www.mpak.dev) for public discovery
+
+## Quick Start
+
+Trigger on release for the simplest workflow:
+
+```yaml
+name: Release
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: NimbleBrainInc/mcpb-pack@v2
+```
+
+That's it. When you publish a release, this will:
+1. Build the `.mcpb` bundle
+2. Upload it to the release
+3. Announce it to the mpak registry
 
 ## Usage
 
-### Build and Announce (Default)
+### Single Architecture (Recommended)
 
-Build a new bundle and announce it to the registry:
+```yaml
+name: Release
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: NimbleBrainInc/mcpb-pack@v2
+```
+
+### Multi-Architecture
+
+For servers with native dependencies that need platform-specific builds:
+
+```yaml
+name: Release
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: NimbleBrainInc/mcpb-pack@v2
+        with:
+          output: "{name}-{version}-linux-${{ matrix.arch }}.mcpb"
+          announce: false  # Announce once after all builds
+
+  announce:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: NimbleBrainInc/mcpb-pack@v2
+        with:
+          build: false
+          announce: true
+```
+
+### Build Only (No Upload/Announce)
+
+For testing or CI validation:
 
 ```yaml
 - uses: NimbleBrainInc/mcpb-pack@v2
   with:
-    output: my-server-${{ github.ref_name }}.mcpb
+    upload: false
+    announce: false
 ```
 
-### Announce Only (Existing Bundle)
+### Announce Only
 
-For repos that already build `.mcpb` bundles, just announce them:
+For repos that build bundles separately:
 
 ```yaml
 - uses: NimbleBrainInc/mcpb-pack@v2
@@ -35,30 +125,17 @@ For repos that already build `.mcpb` bundles, just announce them:
     announce: true
 ```
 
-### Build Only (No Announce)
-
-Build without announcing (e.g., for testing):
-
-```yaml
-- uses: NimbleBrainInc/mcpb-pack@v2
-  with:
-    output: my-server.mcpb
-    announce: false
-```
-
 ## Inputs
 
-| Input            | Description                                           | Required | Default                                    |
-| ---------------- | ----------------------------------------------------- | -------- | ------------------------------------------ |
-| `directory`      | Directory containing the MCP server and manifest.json | No       | `.`                                        |
-| `output`         | Output filename for the .mcpb bundle                  | No       | `extension.mcpb`                           |
-| `python-version` | Python version for vendoring deps (if Python server)  | No       | `3.13`                                     |
-| `build`          | Whether to build the .mcpb bundle                     | No       | `true`                                     |
-| `announce`       | Whether to announce the bundle to the registry        | No       | `true`                                     |
-| `announce-url`   | URL of the announce endpoint                          | No       | `https://api.mpak.dev/v1/bundles/announce` |
-| `bundle-url`     | URL of existing bundle (for announce-only mode)       | No       | Auto-detects from release                  |
-
-> **Note:** Announcing uses GitHub OIDC for authentication. Your workflow must have `permissions: id-token: write` for the announce step to work.
+| Input            | Default                                    | Description                                                  |
+| ---------------- | ------------------------------------------ | ------------------------------------------------------------ |
+| `directory`      | `.`                                        | Directory containing the MCP server and manifest.json        |
+| `output`         | `{name}-{version}.mcpb`                    | Output filename (supports `{name}`, `{version}` placeholders)|
+| `python-version` | `3.13`                                     | Python version for vendoring deps (if Python server)         |
+| `build`          | `true`                                     | Whether to build the .mcpb bundle                            |
+| `upload`         | `true`                                     | Whether to upload bundle to release (requires release event) |
+| `announce`       | `true`                                     | Whether to announce to the mpak registry                     |
+| `announce-url`   | `https://api.mpak.dev/v1/bundles/announce` | URL of the announce endpoint                                 |
 
 ## Outputs
 
@@ -69,107 +146,14 @@ Build without announcing (e.g., for testing):
 | `bundle-sha256` | SHA256 hash of the bundle                     |
 | `announced`     | Whether the bundle was announced successfully |
 
-## Examples
+## Permissions
 
-### Basic Release Workflow
+The action requires these permissions:
 
 ```yaml
-name: Release
-on:
-  push:
-    tags: ["v*"]
-
 permissions:
-  contents: write
-  id-token: write # Required for OIDC announce
-
-jobs:
-  release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: NimbleBrainInc/mcpb-pack@v2
-        id: pack
-        with:
-          output: my-server-${{ github.ref_name }}.mcpb
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ steps.pack.outputs.bundle-path }}
-```
-
-### Announce Existing Bundle
-
-For repos that already build their own `.mcpb`:
-
-```yaml
-name: Announce MCPB
-on:
-  release:
-    types: [published]
-
-permissions:
-  contents: read
-  id-token: write # Required for OIDC announce
-
-jobs:
-  announce:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: NimbleBrainInc/mcpb-pack@v2
-        with:
-          build: false
-          announce: true
-```
-
-The action will auto-detect the `.mcpb` asset from the release and announce it.
-
-### Multi-Architecture Build
-
-```yaml
-name: Release
-on:
-  push:
-    tags: ["v*"]
-
-jobs:
-  build:
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            arch: amd64
-          - runner: ubuntu-24.04-arm
-            arch: arm64
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: NimbleBrainInc/mcpb-pack@v2
-        with:
-          output: my-server-${{ github.ref_name }}-linux-${{ matrix.arch }}.mcpb
-          announce: false # Announce once after all builds complete
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bundle-${{ matrix.arch }}
-          path: "*.mcpb"
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.mcpb
+  contents: write   # Upload to release
+  id-token: write   # OIDC for announce
 ```
 
 ## About Announcing
@@ -188,7 +172,7 @@ The registry then fetches the `.mcpb` bundle files directly from your GitHub rel
 
 ### Opting out
 
-**Announcing is completely optional.** To build bundles without announcing:
+Announcing is optional. To build and upload without announcing:
 
 ```yaml
 - uses: NimbleBrainInc/mcpb-pack@v2

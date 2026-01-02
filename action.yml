@@ -1,5 +1,5 @@
 name: "MCPB Pack"
-description: "Package MCP servers into .mcpb bundles and announce to registry"
+description: "Package MCP servers into .mcpb bundles, upload to releases, and announce to registry"
 author: "NimbleBrain Inc"
 
 branding:
@@ -12,14 +12,18 @@ inputs:
     required: false
     default: "."
   output:
-    description: "Output filename for the .mcpb bundle"
+    description: "Output filename for the .mcpb bundle (supports {name}, {version} placeholders)"
     required: false
   python-version:
     description: "Python version for vendoring deps (if Python server)"
     required: false
     default: "3.13"
   build:
-    description: "Whether to build the .mcpb bundle (set to false for announce-only)"
+    description: "Whether to build the .mcpb bundle"
+    required: false
+    default: "true"
+  upload:
+    description: "Whether to upload the bundle to the GitHub release (requires release event)"
     required: false
     default: "true"
   announce:
@@ -30,9 +34,6 @@ inputs:
     description: "URL of the mpak registry announce endpoint"
     required: false
     default: "https://api.mpak.dev/v1/bundles/announce"
-  bundle-url:
-    description: "URL of existing .mcpb bundle (for announce-only mode). If not provided, auto-detects from latest release."
-    required: false
 
 outputs:
   bundle-path:
@@ -110,10 +111,17 @@ runs:
       run: |
         cd "${{ inputs.directory }}"
 
+        # Read manifest for placeholders
+        NAME=$(jq -r '.name // "extension"' manifest.json | sed 's/@//g' | sed 's/\//-/g')
+        VERSION=$(jq -r '.version // "0.0.0"' manifest.json)
+
         if [ -n "${{ inputs.output }}" ]; then
           OUTPUT="${{ inputs.output }}"
+          # Replace placeholders
+          OUTPUT="${OUTPUT//\{name\}/$NAME}"
+          OUTPUT="${OUTPUT//\{version\}/$VERSION}"
         else
-          OUTPUT="extension.mcpb"
+          OUTPUT="${NAME}-${VERSION}.mcpb"
         fi
 
         mcpb pack . "$OUTPUT"
@@ -125,53 +133,24 @@ runs:
         echo "path=$OUTPUT" >> $GITHUB_OUTPUT
         echo "size=$SIZE" >> $GITHUB_OUTPUT
         echo "sha256=$SHA256" >> $GITHUB_OUTPUT
-        echo "Bundle size: $(du -h "$OUTPUT" | cut -f1)"
-        echo "Bundle SHA256: $SHA256"
+        echo "Bundle: $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"
+        echo "SHA256: $SHA256"
 
-    - name: Detect existing bundle
-      id: detect
-      if: inputs.build == 'false' && inputs.announce == 'true'
+    - name: Upload to release
+      id: upload
+      if: inputs.upload == 'true' && inputs.build == 'true' && github.event_name == 'release'
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
         cd "${{ inputs.directory }}"
+        BUNDLE_PATH="${{ steps.pack.outputs.path }}"
+        TAG="${{ github.event.release.tag_name }}"
 
-        if [ -n "${{ inputs.bundle-url }}" ]; then
-          echo "Using provided bundle URL"
-          echo "bundle_url=${{ inputs.bundle-url }}" >> $GITHUB_OUTPUT
-        else
-          echo "Auto-detecting bundle from latest release..."
+        echo "Uploading $BUNDLE_PATH to release $TAG"
+        gh release upload "$TAG" "$BUNDLE_PATH" --clobber
 
-          # Get latest release assets
-          RELEASE_DATA=$(gh release view --json assets,tagName 2>/dev/null || echo '{"assets":[]}')
-          TAG=$(echo "$RELEASE_DATA" | jq -r '.tagName // "unknown"')
-
-          # Find .mcpb asset
-          BUNDLE_URL=$(echo "$RELEASE_DATA" | jq -r '.assets[] | select(.name | endswith(".mcpb")) | .url' | head -1)
-          BUNDLE_NAME=$(echo "$RELEASE_DATA" | jq -r '.assets[] | select(.name | endswith(".mcpb")) | .name' | head -1)
-
-          if [ -z "$BUNDLE_URL" ] || [ "$BUNDLE_URL" = "null" ]; then
-            echo "::error::No .mcpb bundle found in latest release"
-            exit 1
-          fi
-
-          echo "Found bundle: $BUNDLE_NAME (tag: $TAG)"
-          echo "bundle_url=$BUNDLE_URL" >> $GITHUB_OUTPUT
-          echo "bundle_name=$BUNDLE_NAME" >> $GITHUB_OUTPUT
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-        fi
-
-        # Read manifest for metadata
-        if [ -f "manifest.json" ]; then
-          NAME=$(jq -r '.name // "unknown"' manifest.json)
-          VERSION=$(jq -r '.version // "unknown"' manifest.json)
-          DESCRIPTION=$(jq -r '.description // ""' manifest.json)
-
-          echo "name=$NAME" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "description=$DESCRIPTION" >> $GITHUB_OUTPUT
-        fi
+        echo "uploaded=true" >> $GITHUB_OUTPUT
 
     - name: Get OIDC Token
       id: oidc
@@ -194,6 +173,7 @@ runs:
       if: inputs.announce == 'true'
       shell: bash
       env:
+        GH_TOKEN: ${{ github.token }}
         OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
       run: |
         cd "${{ inputs.directory }}"
@@ -201,7 +181,13 @@ runs:
         # Read manifest
         NAME=$(jq -r '.name // "unknown"' manifest.json)
         VERSION=$(jq -r '.version // "unknown"' manifest.json)
-        RELEASE_TAG="${{ github.ref_name }}"
+
+        # Get release tag from event context or ref
+        if [ "${{ github.event_name }}" = "release" ]; then
+          RELEASE_TAG="${{ github.event.release.tag_name }}"
+        else
+          RELEASE_TAG="${{ github.ref_name }}"
+        fi
 
         # Build announce payload (mpak API format)
         PAYLOAD=$(jq -n \
@@ -216,7 +202,7 @@ runs:
             release_tag: $release_tag
           }')
 
-        echo "Announcing $NAME v$VERSION to ${{ inputs.announce-url }}"
+        echo "Announcing $NAME v$VERSION (release: $RELEASE_TAG) to ${{ inputs.announce-url }}"
         echo "$PAYLOAD" | jq .
 
         # Make announce request with OIDC token
