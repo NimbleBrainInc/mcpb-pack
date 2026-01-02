@@ -182,11 +182,18 @@ runs:
         NAME=$(jq -r '.name // "unknown"' manifest.json)
         VERSION=$(jq -r '.version // "unknown"' manifest.json)
 
-        # Get release tag from event context or ref
+        # Get release info from event context or ref
         if [ "${{ github.event_name }}" = "release" ]; then
           RELEASE_TAG="${{ github.event.release.tag_name }}"
+          PRERELEASE="${{ github.event.release.prerelease }}"
         else
           RELEASE_TAG="${{ github.ref_name }}"
+          # Detect prerelease from version string (alpha, beta, rc, etc.)
+          if [[ "$VERSION" =~ (alpha|beta|rc|pre|dev) ]]; then
+            PRERELEASE="true"
+          else
+            PRERELEASE="false"
+          fi
         fi
 
         # Build announce payload (mpak API format)
@@ -195,11 +202,13 @@ runs:
           --arg version "$VERSION" \
           --slurpfile manifest manifest.json \
           --arg release_tag "$RELEASE_TAG" \
+          --argjson prerelease "$PRERELEASE" \
           '{
             name: $name,
             version: $version,
             manifest: $manifest[0],
-            release_tag: $release_tag
+            release_tag: $release_tag,
+            prerelease: $prerelease
           }')
 
         echo "Announcing $NAME v$VERSION (release: $RELEASE_TAG) to ${{ inputs.announce-url }}"
