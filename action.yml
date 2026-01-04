@@ -196,9 +196,9 @@ runs:
           *)      OS=$(echo "$OS_RAW" | tr '[:upper:]' '[:lower:]') ;;
         esac
 
-        # Normalize architecture
+        # Normalize architecture (using Node.js/npm conventions)
         case "$ARCH_RAW" in
-          x86_64)  ARCH="amd64" ;;
+          x86_64)  ARCH="x64" ;;
           aarch64) ARCH="arm64" ;;
           arm64)   ARCH="arm64" ;;
           *)       ARCH="$ARCH_RAW" ;;
