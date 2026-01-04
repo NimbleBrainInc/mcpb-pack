@@ -4,17 +4,43 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub release](https://img.shields.io/github/v/release/NimbleBrainInc/mcpb-pack)](https://github.com/NimbleBrainInc/mcpb-pack/releases)
 
-A GitHub Action to package MCP servers into `.mcpb` bundles, upload them to releases, and announce them to the [mpak registry](https://www.mpak.dev).
+A GitHub Action to package MCP servers into distributable bundles and publish them to the [mpak registry](https://www.mpak.dev).
 
-## Features
+## What is this?
 
-- **Build**: Package MCP servers with vendored dependencies into portable `.mcpb` bundles
-- **Upload**: Automatically upload bundles to GitHub releases
-- **Announce**: Register bundles with the [mpak registry](https://www.mpak.dev) for public discovery
+**MCP** (Model Context Protocol) is a standard for AI assistants to interact with external tools and services. An MCP server exposes tools (like "search files" or "query database") that AI assistants can call.
+
+**MCPB** is a bundle format (`.mcpb` files) that packages an MCP server with all its dependencies into a single portable file. This makes MCP servers easy to distribute and install.
+
+**mpak** is a public registry where you can publish and discover MCP bundles. Think of it like npm, but for MCP servers.
+
+**This action** automates the entire workflow: build your MCP server into a bundle, attach it to your GitHub release, and register it with mpak so others can find and install it.
 
 ## Quick Start
 
-Trigger on release for the simplest workflow:
+### Prerequisites
+
+Your repository needs:
+
+1. **A `manifest.json`** describing your MCP server:
+
+```json
+{
+  "name": "@your-org/your-server",
+  "version": "1.0.0",
+  "description": "What your server does",
+  "server": {
+    "type": "python",
+    "entry_point": "your_package/server.py"
+  }
+}
+```
+
+2. **Your MCP server code** (Python or Node.js)
+
+### Minimal Workflow
+
+Add this to `.github/workflows/release.yml`:
 
 ```yaml
 name: Release
@@ -34,25 +60,21 @@ jobs:
       - uses: NimbleBrainInc/mcpb-pack@v2
 ```
 
-That's it. When you publish a release, this will:
-1. Build the `.mcpb` bundle
-2. Upload it to the release
-3. Announce it to the mpak registry
+When you publish a GitHub release, this will:
+1. Vendor all dependencies into the bundle
+2. Build a `.mcpb` file
+3. Upload it to your release
+4. Register it with mpak.dev
+
+Your server is now discoverable via `mpak search` and installable via `mpak pull`.
 
 ## Usage
 
-### Single Architecture (Recommended)
+### Single Platform
+
+For pure Python/Node servers without native dependencies:
 
 ```yaml
-name: Release
-on:
-  release:
-    types: [published]
-
-permissions:
-  contents: write
-  id-token: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -61,51 +83,41 @@ jobs:
       - uses: NimbleBrainInc/mcpb-pack@v2
 ```
 
-### Multi-Architecture
+### Multi-Platform
 
-For servers with native dependencies that need platform-specific builds:
+For servers with native dependencies (C extensions, Rust bindings, etc.), you need to build on each target platform:
 
 ```yaml
-name: Release
-on:
-  release:
-    types: [published]
-
-permissions:
-  contents: write
-  id-token: write
-
 jobs:
   build:
     strategy:
       matrix:
         include:
-          - arch: amd64
+          - os: linux
+            arch: amd64
             runner: ubuntu-latest
-          - arch: arm64
+          - os: linux
+            arch: arm64
             runner: ubuntu-24.04-arm
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+          - os: darwin
+            arch: amd64
+            runner: macos-13
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: NimbleBrainInc/mcpb-pack@v2
         with:
-          output: "{name}-{version}-linux-${{ matrix.arch }}.mcpb"
-          announce: false  # Announce once after all builds
-
-  announce:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: NimbleBrainInc/mcpb-pack@v2
-        with:
-          build: false
-          announce: true
+          output: "{name}-{version}-${{ matrix.os }}-${{ matrix.arch }}.mcpb"
 ```
 
-### Build Only (No Upload/Announce)
+Each job builds and registers its own platform-specific bundle. The registry merges them automatically.
 
-For testing or CI validation:
+### Build Only (No Publish)
+
+For CI validation or private servers:
 
 ```yaml
 - uses: NimbleBrainInc/mcpb-pack@v2
@@ -114,65 +126,57 @@ For testing or CI validation:
     announce: false
 ```
 
-### Announce Only
-
-For repos that build bundles separately:
-
-```yaml
-- uses: NimbleBrainInc/mcpb-pack@v2
-  with:
-    build: false
-    announce: true
-```
-
 ## Inputs
 
-| Input            | Default                                    | Description                                                  |
-| ---------------- | ------------------------------------------ | ------------------------------------------------------------ |
-| `directory`      | `.`                                        | Directory containing the MCP server and manifest.json        |
-| `output`         | `{name}-{version}.mcpb`                    | Output filename (supports `{name}`, `{version}` placeholders)|
-| `python-version` | `3.13`                                     | Python version for vendoring deps (if Python server)         |
-| `build`          | `true`                                     | Whether to build the .mcpb bundle                            |
-| `upload`         | `true`                                     | Whether to upload bundle to release (requires release event) |
-| `announce`       | `true`                                     | Whether to announce to the mpak registry                     |
-| `announce-url`   | `https://api.mpak.dev/v1/bundles/announce` | URL of the announce endpoint                                 |
+| Input            | Default                                    | Description                                                   |
+| ---------------- | ------------------------------------------ | ------------------------------------------------------------- |
+| `directory`      | `.`                                        | Directory containing manifest.json and server code            |
+| `output`         | `{name}-{version}.mcpb`                    | Output filename (`{name}` and `{version}` are replaced)       |
+| `python-version` | `3.13`                                     | Python version for vendoring (if Python server)               |
+| `build`          | `true`                                     | Whether to build the bundle                                   |
+| `upload`         | `true`                                     | Whether to upload to the GitHub release                       |
+| `announce`       | `true`                                     | Whether to register with mpak.dev                             |
+| `announce-url`   | `https://api.mpak.dev/v1/bundles/announce` | Registry endpoint (change for self-hosted registries)         |
 
 ## Outputs
 
-| Output          | Description                                   |
-| --------------- | --------------------------------------------- |
-| `bundle-path`   | Path to the generated .mcpb file              |
-| `bundle-size`   | Size of the bundle in bytes                   |
-| `bundle-sha256` | SHA256 hash of the bundle                     |
-| `announced`     | Whether the bundle was announced successfully |
+| Output          | Description                        |
+| --------------- | ---------------------------------- |
+| `bundle-path`   | Path to the generated .mcpb file   |
+| `bundle-size`   | Size of the bundle in bytes        |
+| `bundle-sha256` | SHA256 hash for integrity checks   |
+| `announced`     | Whether registration succeeded     |
 
 ## Permissions
 
-The action requires these permissions:
-
 ```yaml
 permissions:
-  contents: write   # Upload to release
-  id-token: write   # OIDC for announce
+  contents: write   # Required to upload to releases
+  id-token: write   # Required for OIDC authentication with registry
 ```
 
-## About Announcing
+## How It Works
 
-### What it does
+### Building
 
-By default, this action announces your bundle to the [mpak registry](https://www.mpak.dev), a public directory of MCP bundles. This makes your server discoverable via `mpak search` and installable via `mpak install`.
+The action:
+1. Detects your server type from `manifest.json` (Python or Node.js)
+2. Vendors all dependencies into the bundle (Python: `deps/`, Node: `node_modules/`)
+3. Packages everything into a `.mcpb` file using the [mcpb CLI](https://github.com/anthropics/mcpb)
 
-When you announce, the following information is sent to the registry:
+### Announcing
 
-- Your `manifest.json` contents (name, version, description, tools, etc.)
-- The release tag (e.g., `v1.0.0`)
-- Provenance data proving the bundle came from your GitHub repository
+When you announce to mpak.dev:
+1. The action requests an [OIDC token](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect) from GitHub
+2. This token cryptographically proves the bundle came from your repository
+3. The registry verifies the token and registers your bundle
+4. No API keys or secrets needed
 
-The registry then fetches the `.mcpb` bundle files directly from your GitHub release.
+Each platform build announces its own artifact. The registry tracks all artifacts for a version, so users can install the right bundle for their system.
 
-### Opting out
+### Opting Out of Announcing
 
-Announcing is optional. To build and upload without announcing:
+To build without publishing to the public registry:
 
 ```yaml
 - uses: NimbleBrainInc/mcpb-pack@v2
@@ -180,16 +184,28 @@ Announcing is optional. To build and upload without announcing:
     announce: false
 ```
 
-You might want to disable announcing if:
-
-- Your MCP server is private or internal
+You might want this if:
+- Your server is private or internal
 - You're using a self-hosted registry
-- You want to test builds before publishing
-- You prefer to distribute bundles through other channels
+- You want to test before publishing
+- You distribute through other channels
 
-### Authentication
+## Supported Runtimes
 
-The action uses [GitHub OIDC](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect) to authenticate with the mpak registry. This provides cryptographic proof that the bundle was published from your GitHub repository, without requiring any secrets or API keys.
+| Runtime | Detected via              | Dependency vendoring          |
+| ------- | ------------------------- | ----------------------------- |
+| Python  | `server.type: "python"`   | `uv pip install --target`     |
+| Node.js | `server.type: "node"`     | `npm install --omit=dev`      |
+
+## Example Repositories
+
+- [mcp-echo](https://github.com/NimbleBrainInc/mcp-echo) - Simple Python MCP server with multi-platform builds
+
+## Learn More
+
+- [MCP Documentation](https://modelcontextprotocol.io) - Model Context Protocol specification
+- [mpak Registry](https://www.mpak.dev) - Browse and search published MCP bundles
+- [mcpb CLI](https://github.com/anthropics/mcpb) - Command-line tool for building bundles locally
 
 ## License
 

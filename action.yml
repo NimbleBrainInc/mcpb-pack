@@ -175,12 +175,36 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
         OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        BUNDLE_PATH: ${{ steps.pack.outputs.path }}
+        BUNDLE_SIZE: ${{ steps.pack.outputs.size }}
+        BUNDLE_SHA256: ${{ steps.pack.outputs.sha256 }}
       run: |
         cd "${{ inputs.directory }}"
 
         # Read manifest
         NAME=$(jq -r '.name // "unknown"' manifest.json)
         VERSION=$(jq -r '.version // "unknown"' manifest.json)
+
+        # Detect current platform
+        OS_RAW=$(uname -s)
+        ARCH_RAW=$(uname -m)
+
+        # Normalize OS
+        case "$OS_RAW" in
+          Linux)  OS="linux" ;;
+          Darwin) OS="darwin" ;;
+          *)      OS=$(echo "$OS_RAW" | tr '[:upper:]' '[:lower:]') ;;
+        esac
+
+        # Normalize architecture
+        case "$ARCH_RAW" in
+          x86_64)  ARCH="amd64" ;;
+          aarch64) ARCH="arm64" ;;
+          arm64)   ARCH="arm64" ;;
+          *)       ARCH="$ARCH_RAW" ;;
+        esac
+
+        echo "Detected platform: $OS-$ARCH"
 
         # Get release info from event context or ref
         if [ "${{ github.event_name }}" = "release" ]; then
@@ -196,22 +220,34 @@ runs:
           fi
         fi
 
-        # Build announce payload (mpak API format)
+        # Build announce payload with artifact info (idempotent per-artifact)
         PAYLOAD=$(jq -n \
           --arg name "$NAME" \
           --arg version "$VERSION" \
           --slurpfile manifest manifest.json \
           --arg release_tag "$RELEASE_TAG" \
           --argjson prerelease "$PRERELEASE" \
+          --arg filename "$BUNDLE_PATH" \
+          --arg os "$OS" \
+          --arg arch "$ARCH" \
+          --arg sha256 "$BUNDLE_SHA256" \
+          --argjson size "${BUNDLE_SIZE:-0}" \
           '{
             name: $name,
             version: $version,
             manifest: $manifest[0],
             release_tag: $release_tag,
-            prerelease: $prerelease
+            prerelease: $prerelease,
+            artifact: {
+              filename: $filename,
+              os: $os,
+              arch: $arch,
+              sha256: $sha256,
+              size: $size
+            }
           }')
 
-        echo "Announcing $NAME v$VERSION (release: $RELEASE_TAG) to ${{ inputs.announce-url }}"
+        echo "Announcing $NAME v$VERSION artifact ($OS-$ARCH) to ${{ inputs.announce-url }}"
         echo "$PAYLOAD" | jq .
 
         # Make announce request with OIDC token
@@ -227,11 +263,11 @@ runs:
 
         if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
           echo "announced=true" >> $GITHUB_OUTPUT
-          echo "✅ Bundle announced successfully"
+          echo "✅ Artifact announced successfully ($OS-$ARCH)"
           echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
         else
           echo "announced=false" >> $GITHUB_OUTPUT
-          echo "::error::Failed to announce bundle (HTTP $HTTP_CODE)"
+          echo "::error::Failed to announce artifact (HTTP $HTTP_CODE)"
           echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
           exit 1
         fi
