@@ -196,6 +196,64 @@ You might want this if:
 | ------- | ------------------------- | ----------------------------- |
 | Python  | `server.type: "python"`   | `uv pip install --target`     |
 | Node.js | `server.type: "node"`     | `npm install --omit=dev`      |
+| Binary  | `server.type: "binary"`   | None (you build the binary)   |
+
+### Binary Servers (Go, Rust, etc.)
+
+For compiled languages, build your binary before running mcpb-pack:
+
+```yaml
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            goarch: amd64
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            goarch: arm64
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            goarch: arm64
+          - os: darwin
+            arch: amd64
+            runner: macos-13
+            goarch: amd64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build binary
+        run: |
+          mkdir -p bin
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.goarch }} go build -o bin/server ./cmd/server
+
+      - uses: NimbleBrainInc/mcpb-pack@v2
+        with:
+          output: "{name}-{version}-${{ matrix.os }}-${{ matrix.arch }}.mcpb"
+```
+
+The manifest.json for binary servers:
+
+```json
+{
+  "name": "@your-org/your-server",
+  "version": "1.0.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/server"
+  }
+}
+```
 
 ## Example Repositories
 
