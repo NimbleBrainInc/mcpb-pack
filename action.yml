@@ -251,8 +251,8 @@ runs:
         echo "$PAYLOAD" | jq .
 
         # Retry loop for GitHub API propagation delays
-        # After upload, GitHub's API/CDN may take a few seconds to reflect the new asset
-        MAX_ATTEMPTS=3
+        # After upload, GitHub's API/CDN may take 10-30s to reflect the new asset
+        MAX_ATTEMPTS=4
         ATTEMPT=1
 
         while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
@@ -272,7 +272,7 @@ runs:
             echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
             break
           elif echo "$BODY" | grep -q "not found in release" && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
-            WAIT=$((2 ** ATTEMPT))
+            WAIT=$((ATTEMPT * 5))
             echo "⏳ Artifact not yet visible in GitHub API, retrying in ${WAIT}s... (attempt $ATTEMPT/$MAX_ATTEMPTS)"
             sleep $WAIT
             ATTEMPT=$((ATTEMPT + 1))
