@@ -250,24 +250,36 @@ runs:
         echo "Announcing $NAME v$VERSION artifact ($OS-$ARCH) to ${{ inputs.announce-url }}"
         echo "$PAYLOAD" | jq .
 
-        # Make announce request with OIDC token
-        RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ inputs.announce-url }}" \
-          -H "Content-Type: application/json" \
-          -H "Authorization: Bearer $OIDC_TOKEN" \
-          -d "$PAYLOAD")
+        # Retry loop for GitHub API propagation delays
+        # After upload, GitHub's API/CDN may take a few seconds to reflect the new asset
+        MAX_ATTEMPTS=3
+        ATTEMPT=1
 
-        HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-        BODY=$(echo "$RESPONSE" | sed '$d')
+        while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ inputs.announce-url }}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            -d "$PAYLOAD")
 
-        echo "HTTP Status: $HTTP_CODE"
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
 
-        if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-          echo "announced=true" >> $GITHUB_OUTPUT
-          echo "✅ Artifact announced successfully ($OS-$ARCH)"
-          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
-        else
-          echo "announced=false" >> $GITHUB_OUTPUT
-          echo "::error::Failed to announce artifact (HTTP $HTTP_CODE)"
-          echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
-          exit 1
-        fi
+          echo "HTTP Status: $HTTP_CODE (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "announced=true" >> $GITHUB_OUTPUT
+            echo "✅ Artifact announced successfully ($OS-$ARCH)"
+            echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+            break
+          elif echo "$BODY" | grep -q "not found in release" && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+            WAIT=$((2 ** ATTEMPT))
+            echo "⏳ Artifact not yet visible in GitHub API, retrying in ${WAIT}s... (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+            sleep $WAIT
+            ATTEMPT=$((ATTEMPT + 1))
+          else
+            echo "announced=false" >> $GITHUB_OUTPUT
+            echo "::error::Failed to announce artifact (HTTP $HTTP_CODE)"
+            echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+            exit 1
+          fi
+        done
