@@ -104,7 +104,7 @@ jobs:
             runner: macos-latest
           - os: darwin
             arch: amd64
-            runner: macos-13
+            runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -114,6 +114,24 @@ jobs:
 ```
 
 Each job builds and registers its own platform-specific bundle. The registry merges them automatically.
+
+### Runner Reference
+
+| Platform | Runner Label | Architecture | Notes |
+|----------|--------------|--------------|-------|
+| **Linux x64** | `ubuntu-latest` | x64 | Free |
+| **Linux ARM** | `ubuntu-24.04-arm` | arm64 | Free |
+| **macOS ARM** | `macos-latest` / `macos-15` | arm64 (M1) | Free, 3 vCPU, 7 GB |
+| **macOS Intel** | `macos-15-intel` | x64 | Free, 4 vCPU, 14 GB |
+
+**Paid larger runners** (Team/Enterprise plans):
+
+| Platform | Runner Label | Architecture | Notes |
+|----------|--------------|--------------|-------|
+| **macOS Intel** | `macos-15-large` | x64 | 12 vCPU, 30 GB |
+| **macOS ARM** | `macos-15-xlarge` | arm64 (M2) | 5 vCPU + 8 GPU, 14 GB |
+
+> **Note:** `macos-13` is [retiring December 2025](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/). Use `macos-15-intel` for Intel macOS builds.
 
 ### Build Only (No Publish)
 
@@ -211,19 +229,15 @@ jobs:
           - os: linux
             arch: amd64
             runner: ubuntu-latest
-            goarch: amd64
           - os: linux
             arch: arm64
             runner: ubuntu-24.04-arm
-            goarch: arm64
           - os: darwin
             arch: arm64
             runner: macos-latest
-            goarch: arm64
           - os: darwin
             arch: amd64
-            runner: macos-13
-            goarch: amd64
+            runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -235,7 +249,7 @@ jobs:
       - name: Build binary
         run: |
           mkdir -p bin
-          GOOS=${{ matrix.os }} GOARCH=${{ matrix.goarch }} go build -o bin/server ./cmd/server
+          go build -o bin/server ./cmd/server
 
       - uses: NimbleBrainInc/mcpb-pack@v2
         with:
