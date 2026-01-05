@@ -13,9 +13,11 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-latest
-            arch: amd64
+            platform: linux-x64
           - runner: ubuntu-24.04-arm
-            arch: arm64
+            platform: linux-arm64
+          - runner: macos-14
+            platform: darwin-arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -74,7 +76,7 @@ jobs:
         id: pack
         uses: ./
         with:
-          output: test-${{ matrix.arch }}.mcpb
+          output: test-${{ matrix.platform }}.mcpb
           announce: false  # Don't announce test builds
 
       - name: Verify bundle
