@@ -26,17 +26,29 @@ Your repository needs:
 
 ```json
 {
-  "name": "@your-org/your-server",
+  "name": "@your-github-org/your-server",
   "version": "1.0.0",
   "description": "What your server does",
   "server": {
     "type": "python",
-    "entry_point": "your_package/server.py"
+    "entry_point": "your_package.server",
+    "mcp_config": {
+      "command": "python",
+      "args": ["-m", "your_package.server"]
+    }
   }
 }
 ```
 
-2. **Your MCP server code** (Python or Node.js)
+> **Note:** The `@scope` must match your GitHub organization or username. The registry verifies this via OIDC.
+
+2. **Your MCP server code** with stdio entrypoint:
+
+```python
+# At end of server.py
+if __name__ == "__main__":
+    mcp.run()  # Required for mpak run / Claude Desktop
+```
 
 ### Minimal Workflow
 
@@ -94,7 +106,7 @@ jobs:
       matrix:
         include:
           - os: linux
-            arch: amd64
+            arch: x64
             runner: ubuntu-latest
           - os: linux
             arch: arm64
@@ -103,7 +115,7 @@ jobs:
             arch: arm64
             runner: macos-latest
           - os: darwin
-            arch: amd64
+            arch: x64
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     steps:
@@ -143,6 +155,40 @@ For CI validation or private servers:
     upload: false
     announce: false
 ```
+
+### Manual Re-announce
+
+To re-announce an existing release (e.g., if the registry was down or you're announcing to a different registry), add `workflow_dispatch` to your workflow:
+
+```yaml
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      build:
+        description: 'Build bundle'
+        type: boolean
+        default: true
+      announce:
+        description: 'Announce to registry'
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: NimbleBrainInc/mcpb-pack@v2
+        with:
+          build: ${{ inputs.build }}
+          announce: ${{ inputs.announce }}
+```
+
+Then trigger manually from the Actions tab, checking out the release tag. The action uses `github.ref_name` as the release tag when not triggered by a release event.
+
+> **Note:** The `upload` input only works with release events. For manual triggers, upload the bundle to the release manually or use `gh release upload`.
 
 ## Inputs
 
@@ -227,7 +273,7 @@ jobs:
       matrix:
         include:
           - os: linux
-            arch: amd64
+            arch: x64
             runner: ubuntu-latest
           - os: linux
             arch: arm64
@@ -236,7 +282,7 @@ jobs:
             arch: arm64
             runner: macos-latest
           - os: darwin
-            arch: amd64
+            arch: x64
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     steps:
@@ -264,7 +310,28 @@ The manifest.json for binary servers:
   "version": "1.0.0",
   "server": {
     "type": "binary",
-    "entry_point": "bin/server"
+    "entry_point": "bin/server",
+    "mcp_config": {
+      "command": "${__dirname}/bin/server",
+      "args": []
+    }
+  }
+}
+```
+
+### Node.js Servers
+
+```json
+{
+  "name": "@your-org/your-server",
+  "version": "1.0.0",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"]
+    }
   }
 }
 ```
