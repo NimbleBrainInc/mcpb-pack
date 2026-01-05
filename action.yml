@@ -271,6 +271,12 @@ runs:
             echo "✅ Artifact announced successfully ($OS-$ARCH)"
             echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
             break
+          elif [ "$HTTP_CODE" -eq 409 ]; then
+            # 409 CONFLICT means this version/artifact is already registered - treat as success
+            # This happens when multiple platform builds announce in parallel
+            echo "announced=true" >> $GITHUB_OUTPUT
+            echo "✅ Artifact already announced ($OS-$ARCH) - treating as success"
+            break
           elif echo "$BODY" | grep -q "not found in release" && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
             WAIT=$((ATTEMPT * 5))
             echo "⏳ Artifact not yet visible in GitHub API, retrying in ${WAIT}s... (attempt $ATTEMPT/$MAX_ATTEMPTS)"
