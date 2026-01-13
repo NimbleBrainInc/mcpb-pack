@@ -78,7 +78,7 @@ When you publish a GitHub release, this will:
 3. Upload it to your release
 4. Register it with mpak.dev
 
-Your server is now discoverable via `mpak search` and installable via `mpak pull`.
+Your server is now discoverable via `mpak search` and installable via `mpak bundle pull`.
 
 ## Usage
 
