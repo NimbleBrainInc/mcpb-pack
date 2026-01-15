@@ -41,6 +41,12 @@ inputs:
     description: "Whether announce failures should fail the workflow (default: false)"
     required: false
     default: "false"
+  platform-os:
+    description: "Override detected OS (darwin, linux, win32, any). Use 'any' for cross-platform bundles."
+    required: false
+  platform-arch:
+    description: "Override detected architecture (x64, arm64, any). Use 'any' for cross-platform bundles."
+    required: false
 
 outputs:
   bundle-path:
@@ -221,26 +227,31 @@ runs:
         NAME=$(jq -r '.name // "unknown"' manifest.json)
         VERSION=$(jq -r '.version // "unknown"' manifest.json)
 
-        # Detect current platform
-        OS_RAW=$(uname -s)
-        ARCH_RAW=$(uname -m)
+        # Detect current platform (or use overrides)
+        if [ -n "${{ inputs.platform-os }}" ]; then
+          OS="${{ inputs.platform-os }}"
+        else
+          OS_RAW=$(uname -s)
+          case "$OS_RAW" in
+            Linux)  OS="linux" ;;
+            Darwin) OS="darwin" ;;
+            *)      OS=$(echo "$OS_RAW" | tr '[:upper:]' '[:lower:]') ;;
+          esac
+        fi
 
-        # Normalize OS
-        case "$OS_RAW" in
-          Linux)  OS="linux" ;;
-          Darwin) OS="darwin" ;;
-          *)      OS=$(echo "$OS_RAW" | tr '[:upper:]' '[:lower:]') ;;
-        esac
+        if [ -n "${{ inputs.platform-arch }}" ]; then
+          ARCH="${{ inputs.platform-arch }}"
+        else
+          ARCH_RAW=$(uname -m)
+          case "$ARCH_RAW" in
+            x86_64)  ARCH="x64" ;;
+            aarch64) ARCH="arm64" ;;
+            arm64)   ARCH="arm64" ;;
+            *)       ARCH="$ARCH_RAW" ;;
+          esac
+        fi
 
-        # Normalize architecture (using Node.js/npm conventions)
-        case "$ARCH_RAW" in
-          x86_64)  ARCH="x64" ;;
-          aarch64) ARCH="arm64" ;;
-          arm64)   ARCH="arm64" ;;
-          *)       ARCH="$ARCH_RAW" ;;
-        esac
-
-        echo "Detected platform: $OS-$ARCH"
+        echo "Platform: $OS-$ARCH"
 
         # Get release info from event context or ref
         if [ "${{ github.event_name }}" = "release" ]; then

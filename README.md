@@ -175,6 +175,19 @@ This is useful when:
 
 The action will compute the SHA256 hash and size from the provided bundle, upload it to the release, and announce it to the registry.
 
+### Cross-Platform Bundles
+
+For pure Node.js or Python servers without native dependencies, you can announce a single bundle as cross-platform using `any`:
+
+```yaml
+- uses: NimbleBrainInc/mcpb-pack@v2
+  with:
+    platform-os: any
+    platform-arch: any
+```
+
+This registers the bundle as universal, so users on any platform can install it. The registry will serve this bundle when no platform-specific build is available.
+
 ### Manual Re-announce
 
 To re-announce an existing release (e.g., if the registry was down or you're announcing to a different registry), add `workflow_dispatch` to your workflow:
@@ -222,6 +235,8 @@ Then trigger manually from the Actions tab, checking out the release tag. The ac
 | `announce`       | `true`                                     | Whether to register with mpak.dev                             |
 | `announce-required` | `false`                                 | Whether announce failures should fail the workflow            |
 | `announce-url`   | `https://api.mpak.dev/v1/bundles/announce` | Registry endpoint (change for self-hosted registries)         |
+| `platform-os`    |                                            | Override detected OS (darwin, linux, win32, any)              |
+| `platform-arch`  |                                            | Override detected arch (x64, arm64, any)                      |
 
 ## Outputs
 
