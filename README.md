@@ -156,6 +156,25 @@ For CI validation or private servers:
     announce: false
 ```
 
+### Use Existing Bundle
+
+If you already build your `.mcpb` bundle separately (e.g., committed to the repo or built in a prior step), you can skip the build and just upload/announce:
+
+```yaml
+- uses: NimbleBrainInc/mcpb-pack@v2
+  with:
+    directory: packages/mcp/mcpb
+    bundle-path: context7.mcpb
+    build: false
+```
+
+This is useful when:
+- Your bundle is pre-built and committed to the repository
+- You have a custom build process
+- You want to announce an existing bundle to mpak.dev
+
+The action will compute the SHA256 hash and size from the provided bundle, upload it to the release, and announce it to the registry.
+
 ### Manual Re-announce
 
 To re-announce an existing release (e.g., if the registry was down or you're announcing to a different registry), add `workflow_dispatch` to your workflow:
@@ -195,11 +214,13 @@ Then trigger manually from the Actions tab, checking out the release tag. The ac
 | Input            | Default                                    | Description                                                   |
 | ---------------- | ------------------------------------------ | ------------------------------------------------------------- |
 | `directory`      | `.`                                        | Directory containing manifest.json and server code            |
+| `bundle-path`    |                                            | Path to existing .mcpb bundle (use with `build: false`)       |
 | `output`         | `{name}-{version}.mcpb`                    | Output filename (`{name}` and `{version}` are replaced)       |
 | `python-version` | `3.13`                                     | Python version for vendoring (if Python server)               |
 | `build`          | `true`                                     | Whether to build the bundle                                   |
 | `upload`         | `true`                                     | Whether to upload to the GitHub release                       |
 | `announce`       | `true`                                     | Whether to register with mpak.dev                             |
+| `announce-required` | `false`                                 | Whether announce failures should fail the workflow            |
 | `announce-url`   | `https://api.mpak.dev/v1/bundles/announce` | Registry endpoint (change for self-hosted registries)         |
 
 ## Outputs

@@ -11,6 +11,9 @@ inputs:
     description: "Directory containing the MCP server and manifest.json"
     required: false
     default: "."
+  bundle-path:
+    description: "Path to existing .mcpb bundle (relative to directory). When provided with build=false, skips building and uses this bundle."
+    required: false
   output:
     description: "Output filename for the .mcpb bundle (supports {name}, {version} placeholders)"
     required: false
@@ -34,17 +37,21 @@ inputs:
     description: "URL of the mpak registry announce endpoint"
     required: false
     default: "https://api.mpak.dev/v1/bundles/announce"
+  announce-required:
+    description: "Whether announce failures should fail the workflow (default: false)"
+    required: false
+    default: "false"
 
 outputs:
   bundle-path:
-    description: "Path to the generated .mcpb file"
-    value: ${{ steps.pack.outputs.path }}
+    description: "Path to the .mcpb file"
+    value: ${{ steps.pack.outputs.path || steps.existing.outputs.path }}
   bundle-size:
     description: "Size of the bundle in bytes"
-    value: ${{ steps.pack.outputs.size }}
+    value: ${{ steps.pack.outputs.size || steps.existing.outputs.size }}
   bundle-sha256:
     description: "SHA256 hash of the bundle for integrity verification"
-    value: ${{ steps.pack.outputs.sha256 }}
+    value: ${{ steps.pack.outputs.sha256 || steps.existing.outputs.sha256 }}
   announced:
     description: "Whether the bundle was announced successfully"
     value: ${{ steps.announce.outputs.announced }}
@@ -136,15 +143,38 @@ runs:
         echo "Bundle: $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"
         echo "SHA256: $SHA256"
 
+    - name: Use existing bundle
+      id: existing
+      if: inputs.build == 'false' && inputs.bundle-path != ''
+      shell: bash
+      run: |
+        cd "${{ inputs.directory }}"
+        BUNDLE="${{ inputs.bundle-path }}"
+
+        if [ ! -f "$BUNDLE" ]; then
+          echo "::error::Bundle not found: $BUNDLE"
+          exit 1
+        fi
+
+        SIZE=$(stat -f%z "$BUNDLE" 2>/dev/null || stat -c%s "$BUNDLE")
+        SHA256=$(shasum -a 256 "$BUNDLE" 2>/dev/null || sha256sum "$BUNDLE" | cut -d' ' -f1)
+        SHA256=$(echo "$SHA256" | cut -d' ' -f1)
+
+        echo "path=$BUNDLE" >> $GITHUB_OUTPUT
+        echo "size=$SIZE" >> $GITHUB_OUTPUT
+        echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+        echo "Using existing bundle: $BUNDLE ($(du -h "$BUNDLE" | cut -f1))"
+        echo "SHA256: $SHA256"
+
     - name: Upload to release
       id: upload
-      if: inputs.upload == 'true' && inputs.build == 'true' && github.event_name == 'release'
+      if: inputs.upload == 'true' && github.event_name == 'release'
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
         cd "${{ inputs.directory }}"
-        BUNDLE_PATH="${{ steps.pack.outputs.path }}"
+        BUNDLE_PATH="${{ steps.pack.outputs.path || steps.existing.outputs.path }}"
         TAG="${{ github.event.release.tag_name }}"
 
         echo "Uploading $BUNDLE_PATH to release $TAG"
@@ -161,8 +191,14 @@ runs:
           "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://www.mpak.dev" | jq -r '.value')
 
         if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
-          echo "::error::Failed to get OIDC token. Ensure 'permissions: id-token: write' is set."
-          exit 1
+          if [ "${{ inputs.announce-required }}" = "true" ]; then
+            echo "::error::Failed to get OIDC token. Ensure 'permissions: id-token: write' is set."
+            exit 1
+          else
+            echo "::warning::Failed to get OIDC token - skipping announce (announce-required=false)"
+            echo "token=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
         fi
 
         echo "::add-mask::$TOKEN"
@@ -170,14 +206,14 @@ runs:
 
     - name: Announce bundle
       id: announce
-      if: inputs.announce == 'true'
+      if: inputs.announce == 'true' && steps.oidc.outputs.token != ''
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
-        BUNDLE_PATH: ${{ steps.pack.outputs.path }}
-        BUNDLE_SIZE: ${{ steps.pack.outputs.size }}
-        BUNDLE_SHA256: ${{ steps.pack.outputs.sha256 }}
+        BUNDLE_PATH: ${{ steps.pack.outputs.path || steps.existing.outputs.path }}
+        BUNDLE_SIZE: ${{ steps.pack.outputs.size || steps.existing.outputs.size }}
+        BUNDLE_SHA256: ${{ steps.pack.outputs.sha256 || steps.existing.outputs.sha256 }}
       run: |
         cd "${{ inputs.directory }}"
 
@@ -284,8 +320,14 @@ runs:
             ATTEMPT=$((ATTEMPT + 1))
           else
             echo "announced=false" >> $GITHUB_OUTPUT
-            echo "::error::Failed to announce artifact (HTTP $HTTP_CODE)"
-            echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
-            exit 1
+            if [ "${{ inputs.announce-required }}" = "true" ]; then
+              echo "::error::Failed to announce artifact (HTTP $HTTP_CODE)"
+              echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+              exit 1
+            else
+              echo "::warning::Failed to announce artifact (HTTP $HTTP_CODE) - continuing (announce-required=false)"
+              echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
+              break
+            fi
           fi
         done

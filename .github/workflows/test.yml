@@ -108,3 +108,82 @@ jobs:
 
           echo "Bundle contents:"
           unzip -l "$BUNDLE" | head -30
+
+  test-existing-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test project with pre-built bundle
+        run: |
+          mkdir -p test-project
+          cd test-project
+
+          cat > manifest.json << 'EOF'
+          {
+            "manifest_version": "0.3",
+            "name": "test/existing",
+            "version": "2.0.0",
+            "description": "Test existing bundle",
+            "author": { "name": "Test" },
+            "server": {
+              "type": "python",
+              "entry_point": "server.py",
+              "mcp_config": {
+                "command": "python",
+                "args": ["${__dirname}/server.py"]
+              }
+            }
+          }
+          EOF
+
+          # Create a fake pre-built bundle (just a zip with manifest)
+          echo "print('hello')" > server.py
+          zip existing.mcpb manifest.json server.py
+
+      - name: Test action with existing bundle
+        id: existing
+        uses: ./
+        with:
+          directory: test-project
+          bundle-path: existing.mcpb
+          build: false
+          upload: false
+          announce: false
+
+      - name: Verify outputs
+        run: |
+          BUNDLE="${{ steps.existing.outputs.bundle-path }}"
+          SIZE="${{ steps.existing.outputs.bundle-size }}"
+          SHA256="${{ steps.existing.outputs.bundle-sha256 }}"
+
+          echo "Bundle: $BUNDLE"
+          echo "Size: $SIZE bytes"
+          echo "SHA256: $SHA256"
+
+          # Check outputs are populated
+          if [ -z "$BUNDLE" ]; then
+            echo "ERROR: bundle-path output is empty"
+            exit 1
+          fi
+
+          if [ -z "$SIZE" ] || [ "$SIZE" = "0" ]; then
+            echo "ERROR: bundle-size output is empty or zero"
+            exit 1
+          fi
+
+          if [ -z "$SHA256" ]; then
+            echo "ERROR: bundle-sha256 output is empty"
+            exit 1
+          fi
+
+          # Verify SHA256 matches actual file
+          ACTUAL_SHA256=$(sha256sum test-project/$BUNDLE | cut -d' ' -f1)
+          if [ "$SHA256" != "$ACTUAL_SHA256" ]; then
+            echo "ERROR: SHA256 mismatch"
+            echo "Expected: $ACTUAL_SHA256"
+            echo "Got: $SHA256"
+            exit 1
+          fi
+
+          echo "All outputs verified successfully"
