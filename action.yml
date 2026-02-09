@@ -61,6 +61,9 @@ outputs:
   announced:
     description: "Whether the bundle was announced successfully"
     value: ${{ steps.announce.outputs.announced }}
+  server-json-found:
+    description: "Whether a server.json was found and included in the release"
+    value: ${{ steps.server-json.outputs.found }}
 
 runs:
   using: "composite"
@@ -172,6 +175,47 @@ runs:
         echo "Using existing bundle: $BUNDLE ($(du -h "$BUNDLE" | cut -f1))"
         echo "SHA256: $SHA256"
 
+    - name: Validate & prepare server.json
+      id: server-json
+      shell: bash
+      run: |
+        cd "${{ inputs.directory }}"
+
+        if [ ! -f "server.json" ]; then
+          echo "No server.json found, skipping MCP Registry discovery metadata"
+          echo "found=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        echo "found=true" >> $GITHUB_OUTPUT
+
+        # Validate it's valid JSON
+        if ! jq empty server.json 2>/dev/null; then
+          echo "::error::server.json is not valid JSON"
+          exit 1
+        fi
+
+        # Validate required fields (name, description, version per MCP Registry spec)
+        NAME=$(jq -r '.name // empty' server.json)
+        DESC=$(jq -r '.description // empty' server.json)
+
+        if [ -z "$NAME" ]; then
+          echo "::error::server.json missing required field: name"
+          exit 1
+        fi
+
+        if [ -z "$DESC" ]; then
+          echo "::error::server.json missing required field: description"
+          exit 1
+        fi
+
+        # Sync version from manifest.json into server.json (single source of truth)
+        MANIFEST_VERSION=$(jq -r '.version // "0.0.0"' manifest.json)
+        jq --arg v "$MANIFEST_VERSION" '.version = $v' server.json > server.json.tmp && mv server.json.tmp server.json
+
+        echo "server.json validated (name=$NAME, version=$MANIFEST_VERSION)"
+        echo "path=server.json" >> $GITHUB_OUTPUT
+
     - name: Upload to release
       id: upload
       if: inputs.upload == 'true' && github.event_name == 'release'
@@ -185,6 +229,12 @@ runs:
 
         echo "Uploading $BUNDLE_PATH to release $TAG"
         gh release upload "$TAG" "$BUNDLE_PATH" --clobber
+
+        # Upload server.json if present
+        if [ "${{ steps.server-json.outputs.found }}" = "true" ]; then
+          echo "Uploading server.json to release $TAG"
+          gh release upload "$TAG" server.json --clobber
+        fi
 
         echo "uploaded=true" >> $GITHUB_OUTPUT
 

@@ -246,6 +246,7 @@ Then trigger manually from the Actions tab, checking out the release tag. The ac
 | `bundle-size`   | Size of the bundle in bytes        |
 | `bundle-sha256` | SHA256 hash for integrity checks   |
 | `announced`     | Whether registration succeeded     |
+| `server-json-found` | Whether a server.json was found and uploaded |
 
 ## Permissions
 
@@ -263,14 +264,16 @@ The action:
 1. Detects your server type from `manifest.json` (Python or Node.js)
 2. Vendors all dependencies into the bundle (Python: `deps/`, Node: `node_modules/`)
 3. Packages everything into a `.mcpb` file using the [mcpb CLI](https://github.com/anthropics/mcpb)
+4. If a `server.json` is present, validates it and syncs the version from `manifest.json`
 
 ### Announcing
 
 When you announce to mpak.dev:
-1. The action requests an [OIDC token](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect) from GitHub
-2. This token cryptographically proves the bundle came from your repository
-3. The registry verifies the token and registers your bundle
-4. No API keys or secrets needed
+1. The action uploads the `.mcpb` bundle (and `server.json`, if present) to the GitHub release
+2. The action requests an [OIDC token](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect) from GitHub
+3. This token cryptographically proves the bundle came from your repository
+4. The registry verifies the token, registers your bundle, and fetches any `server.json` from the release
+5. No API keys or secrets needed
 
 Each platform build announces its own artifact. The registry tracks all artifacts for a version, so users can install the right bundle for their system.
 
@@ -289,6 +292,49 @@ You might want this if:
 - You're using a self-hosted registry
 - You want to test before publishing
 - You distribute through other channels
+
+## MCP Registry Discovery (server.json)
+
+You can include a `server.json` file in your repository to make your MCP server discoverable through the [MCP Registry](https://registry.nimblebrain.ai). This file provides metadata that the registry uses to list your server in its discovery API (`/v0.1/servers`).
+
+### Why add a server.json?
+
+Without `server.json`, your bundle is published to mpak and installable via `mpak bundle pull`, but it won't appear in MCP Registry discovery endpoints. Adding `server.json` makes your server findable by AI clients and tools that query the registry.
+
+### Format
+
+Only `name` and `description` are required. The `version` field is automatically synced from your `manifest.json` at build time, so you don't need to keep it in sync manually.
+
+```json
+{
+  "name": "@your-org/your-server",
+  "description": "What your server does",
+  "version": "1.0.0",
+  "title": "Human-Friendly Server Name",
+  "repository": {
+    "url": "https://github.com/your-org/your-repo",
+    "source": "https://github.com/your-org/your-repo"
+  }
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Package name (must match `manifest.json`) |
+| `description` | Yes | Short description of the server |
+| `version` | No | Synced automatically from `manifest.json` |
+| `title` | No | Human-friendly display name |
+| `repository` | No | Source repository URLs |
+| `packages` | No | Populated automatically by the registry with bundle download info |
+
+### What happens at build time
+
+1. The action validates `server.json` (checks valid JSON, required fields)
+2. Syncs the `version` field from `manifest.json` into `server.json`
+3. Uploads `server.json` as a release asset alongside the `.mcpb` bundle
+4. When the registry processes the announce, it fetches `server.json` from the release and stores the metadata
+
+The `packages[]` array in the registry response is populated automatically from announced bundles. You don't need to include it in your `server.json`.
 
 ## Supported Runtimes
 
