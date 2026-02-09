@@ -230,10 +230,10 @@ runs:
         echo "Uploading $BUNDLE_PATH to release $TAG"
         gh release upload "$TAG" "$BUNDLE_PATH" --clobber
 
-        # Upload server.json if present
+        # Upload server.json if present (identical across platform jobs, so ignore if already uploaded)
         if [ "${{ steps.server-json.outputs.found }}" = "true" ]; then
           echo "Uploading server.json to release $TAG"
-          gh release upload "$TAG" server.json --clobber
+          gh release upload "$TAG" server.json 2>&1 || echo "server.json already uploaded by another job, skipping"
         fi
 
         echo "uploaded=true" >> $GITHUB_OUTPUT
