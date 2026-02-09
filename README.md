@@ -301,15 +301,25 @@ You can include a `server.json` file in your repository to make your MCP server 
 
 Without `server.json`, your bundle is published to mpak and installable via `mpak bundle pull`, but it won't appear in MCP Registry discovery endpoints. Adding `server.json` makes your server findable by AI clients and tools that query the registry.
 
-### Format
+### Minimal server.json
 
-Only `name` and `description` are required. The `version` field is automatically synced from your `manifest.json` at build time, so you don't need to keep it in sync manually.
+Only `name` and `description` are required:
+
+```json
+{
+  "name": "@your-org/your-server",
+  "description": "What your server does"
+}
+```
+
+The `version` is automatically synced from your `manifest.json` at build time.
+
+### Full example
 
 ```json
 {
   "name": "@your-org/your-server",
   "description": "What your server does",
-  "version": "1.0.0",
   "title": "Human-Friendly Server Name",
   "repository": {
     "url": "https://github.com/your-org/your-repo",
