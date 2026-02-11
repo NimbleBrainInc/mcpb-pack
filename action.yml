@@ -36,7 +36,7 @@ inputs:
   announce-url:
     description: "URL of the mpak registry announce endpoint"
     required: false
-    default: "https://api.mpak.dev/v1/bundles/announce"
+    default: "https://registry.mpak.dev/v1/bundles/announce"
   announce-required:
     description: "Whether announce failures should fail the workflow (default: false)"
     required: false

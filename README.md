@@ -234,7 +234,7 @@ Then trigger manually from the Actions tab, checking out the release tag. The ac
 | `upload`         | `true`                                     | Whether to upload to the GitHub release                       |
 | `announce`       | `true`                                     | Whether to register with mpak.dev                             |
 | `announce-required` | `false`                                 | Whether announce failures should fail the workflow            |
-| `announce-url`   | `https://api.mpak.dev/v1/bundles/announce` | Registry endpoint (change for self-hosted registries)         |
+| `announce-url`   | `https://registry.mpak.dev/v1/bundles/announce` | Registry endpoint (change for self-hosted registries)         |
 | `platform-os`    |                                            | Override detected OS (darwin, linux, win32, any)              |
 | `platform-arch`  |                                            | Override detected arch (x64, arm64, any)                      |
 
@@ -295,7 +295,7 @@ You might want this if:
 
 ## MCP Registry Discovery (server.json)
 
-You can include a `server.json` file in your repository to make your MCP server discoverable through the [MCP Registry](https://registry.nimblebrain.ai). This file provides metadata that the registry uses to list your server in its discovery API (`/v0.1/servers`).
+You can include a `server.json` file in your repository to make your MCP server discoverable through the [MCP Registry](https://registry.mpak.dev). This file provides metadata that the registry uses to list your server in its discovery API (`/v0.1/servers`).
 
 ### Why add a server.json?
 
