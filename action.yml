@@ -244,7 +244,7 @@ runs:
       shell: bash
       run: |
         TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://www.mpak.dev" | jq -r '.value')
+          "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://mpak.dev" | jq -r '.value')
 
         if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
           if [ "${{ inputs.announce-required }}" = "true" ]; then
