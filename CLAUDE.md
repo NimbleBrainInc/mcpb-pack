@@ -36,6 +36,7 @@ For transient errors (API propagation):
 - 4 attempts max
 - Linear backoff: 5s, 10s, 15s (30s total)
 - Match specific error: `grep -q "not found in release"`
+- 409 CONFLICT: retry (version may exist but artifact may not)
 - Fail immediately on non-transient errors
 
 ## Testing
