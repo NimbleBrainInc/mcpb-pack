@@ -379,6 +379,7 @@ runs:
             else
               echo "announced=true" >> $GITHUB_OUTPUT
               echo "✅ Artifact announced (409 after retries — likely already registered)"
+              echo "$BODY" | jq . 2>/dev/null || echo "$BODY"
               break
             fi
           elif echo "$BODY" | grep -q "not found in release" && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
