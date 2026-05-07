@@ -19,7 +19,7 @@ jobs:
           - runner: macos-14
             platform: darwin-arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Create test project
         run: |
@@ -112,7 +112,7 @@ jobs:
   test-existing-bundle:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Create test project with pre-built bundle
         run: |

@@ -70,19 +70,21 @@ runs:
   steps:
     - name: Setup Node.js
       if: inputs.build == 'true'
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: "22"
 
     - name: Setup Python
       if: inputs.build == 'true'
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
 
     - name: Install uv
       if: inputs.build == 'true'
-      uses: astral-sh/setup-uv@v4
+      # Pinned to a specific tag because setup-uv doesn't publish a floating
+      # `v8` major tag (verified 2026-05-06). Bump deliberately.
+      uses: astral-sh/setup-uv@v8.1.0
 
     - name: Install mcpb CLI
       if: inputs.build == 'true'
