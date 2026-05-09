@@ -26,6 +26,7 @@ Your repository needs:
 
 ```json
 {
+  "manifest_version": "0.4",
   "name": "@your-github-org/your-server",
   "version": "1.0.0",
   "description": "What your server does",
