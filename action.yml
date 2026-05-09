@@ -61,13 +61,65 @@ outputs:
   announced:
     description: "Whether the bundle was announced successfully"
     value: ${{ steps.announce.outputs.announced }}
-  server-json-found:
-    description: "Whether a server.json was found and included in the release"
-    value: ${{ steps.server-json.outputs.found }}
 
 runs:
   using: "composite"
   steps:
+    # Validate first — manifest is mandatory and the rest of the pipeline
+    # reads from it. Failing here saves a 30s+ Python `uv pip install`
+    # vendor step on a broken manifest.
+    - name: Validate manifest.json
+      id: manifest
+      shell: bash
+      run: |
+        cd "${{ inputs.directory }}"
+
+        if [ ! -f "manifest.json" ]; then
+          echo "::error::manifest.json not found in ${{ inputs.directory }}"
+          exit 1
+        fi
+
+        # Valid JSON?
+        if ! jq empty manifest.json 2>/dev/null; then
+          echo "::error::manifest.json is not valid JSON"
+          exit 1
+        fi
+
+        # Required mcpb v0.4 fields. v0.3 is also accepted (the required
+        # set is identical; v0.4 only added the "uv" server.type and the
+        # `icons[]` array).
+        for field in manifest_version name version description server; do
+          VALUE=$(jq -r ".${field} // empty" manifest.json)
+          if [ -z "$VALUE" ]; then
+            echo "::error::manifest.json missing required field: ${field}"
+            exit 1
+          fi
+        done
+
+        # Optional reverse-DNS name override per the MCP registry naming
+        # convention. Validated against the upstream `name` constraints:
+        # one-slash reverse-DNS pattern + 3..200 char length bound.
+        # Catching it here keeps the registry's announce-time error
+        # message ("invalid name") from being the operator's first
+        # signal of a typo.
+        # Defensive jq access: tolerates a `_meta` key that's set but
+        # not an object (legal JSON, would otherwise error in jq).
+        REVERSE_DNS=$(jq -r '.["_meta"]?["dev.mpak/registry"]?.name // empty' manifest.json)
+        if [ -n "$REVERSE_DNS" ]; then
+          if ! echo "$REVERSE_DNS" | grep -Eq '^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$'; then
+            echo "::error::manifest._meta[\"dev.mpak/registry\"].name must match ^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$ (got: $REVERSE_DNS)"
+            exit 1
+          fi
+          LEN=${#REVERSE_DNS}
+          if [ "$LEN" -lt 3 ] || [ "$LEN" -gt 200 ]; then
+            echo "::error::manifest._meta[\"dev.mpak/registry\"].name length must be 3..200 chars (got: $LEN)"
+            exit 1
+          fi
+          echo "Reverse-DNS name override: $REVERSE_DNS"
+        fi
+
+        echo "manifest.json validated"
+
     - name: Setup Node.js
       if: inputs.build == 'true'
       uses: actions/setup-node@v6
@@ -177,47 +229,6 @@ runs:
         echo "Using existing bundle: $BUNDLE ($(du -h "$BUNDLE" | cut -f1))"
         echo "SHA256: $SHA256"
 
-    - name: Validate & prepare server.json
-      id: server-json
-      shell: bash
-      run: |
-        cd "${{ inputs.directory }}"
-
-        if [ ! -f "server.json" ]; then
-          echo "No server.json found, skipping MCP Registry discovery metadata"
-          echo "found=false" >> $GITHUB_OUTPUT
-          exit 0
-        fi
-
-        echo "found=true" >> $GITHUB_OUTPUT
-
-        # Validate it's valid JSON
-        if ! jq empty server.json 2>/dev/null; then
-          echo "::error::server.json is not valid JSON"
-          exit 1
-        fi
-
-        # Validate required fields (name, description, version per MCP Registry spec)
-        NAME=$(jq -r '.name // empty' server.json)
-        DESC=$(jq -r '.description // empty' server.json)
-
-        if [ -z "$NAME" ]; then
-          echo "::error::server.json missing required field: name"
-          exit 1
-        fi
-
-        if [ -z "$DESC" ]; then
-          echo "::error::server.json missing required field: description"
-          exit 1
-        fi
-
-        # Sync version from manifest.json into server.json (single source of truth)
-        MANIFEST_VERSION=$(jq -r '.version // "0.0.0"' manifest.json)
-        jq --arg v "$MANIFEST_VERSION" '.version = $v' server.json > server.json.tmp && mv server.json.tmp server.json
-
-        echo "server.json validated (name=$NAME, version=$MANIFEST_VERSION)"
-        echo "path=server.json" >> $GITHUB_OUTPUT
-
     - name: Upload to release
       id: upload
       if: inputs.upload == 'true' && github.event_name == 'release'
@@ -231,12 +242,6 @@ runs:
 
         echo "Uploading $BUNDLE_PATH to release $TAG"
         gh release upload "$TAG" "$BUNDLE_PATH" --clobber
-
-        # Upload server.json if present (identical across platform jobs, so ignore if already uploaded)
-        if [ "${{ steps.server-json.outputs.found }}" = "true" ]; then
-          echo "Uploading server.json to release $TAG"
-          gh release upload "$TAG" server.json 2>&1 || echo "server.json already uploaded by another job, skipping"
-        fi
 
         echo "uploaded=true" >> $GITHUB_OUTPUT
 

@@ -27,7 +27,7 @@ Arch: x86_64 → x64, aarch64/arm64 → arm64
 git add . && git commit -m "..."
 git push origin main
 git tag vX.Y.Z && git push origin vX.Y.Z
-# Workflow auto-creates release and updates major tag (v2)
+# Workflow auto-creates release and updates the matching major tag (e.g. v3.1.0 bumps v3)
 ```
 
 ## Retry Pattern
