@@ -69,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: NimbleBrainInc/mcpb-pack@v2
+      - uses: NimbleBrainInc/mcpb-pack@v3
 ```
 
 When you publish a GitHub release, this will:
@@ -92,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: NimbleBrainInc/mcpb-pack@v2
+      - uses: NimbleBrainInc/mcpb-pack@v3
 ```
 
 ### Multi-Platform
@@ -120,7 +120,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: NimbleBrainInc/mcpb-pack@v2
+      - uses: NimbleBrainInc/mcpb-pack@v3
         with:
           output: "{name}-{version}-${{ matrix.os }}-${{ matrix.arch }}.mcpb"
 ```
@@ -150,7 +150,7 @@ Each job builds and registers its own platform-specific bundle. The registry mer
 For CI validation or private servers:
 
 ```yaml
-- uses: NimbleBrainInc/mcpb-pack@v2
+- uses: NimbleBrainInc/mcpb-pack@v3
   with:
     upload: false
     announce: false
@@ -161,7 +161,7 @@ For CI validation or private servers:
 If you already build your `.mcpb` bundle separately (e.g., committed to the repo or built in a prior step), you can skip the build and just upload/announce:
 
 ```yaml
-- uses: NimbleBrainInc/mcpb-pack@v2
+- uses: NimbleBrainInc/mcpb-pack@v3
   with:
     directory: packages/mcp/mcpb
     bundle-path: context7.mcpb
@@ -180,7 +180,7 @@ The action will compute the SHA256 hash and size from the provided bundle, uploa
 For pure Node.js or Python servers without native dependencies, you can announce a single bundle as cross-platform using `any`:
 
 ```yaml
-- uses: NimbleBrainInc/mcpb-pack@v2
+- uses: NimbleBrainInc/mcpb-pack@v3
   with:
     platform-os: any
     platform-arch: any
@@ -212,7 +212,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: NimbleBrainInc/mcpb-pack@v2
+      - uses: NimbleBrainInc/mcpb-pack@v3
         with:
           build: ${{ inputs.build }}
           announce: ${{ inputs.announce }}
@@ -246,7 +246,6 @@ Then trigger manually from the Actions tab, checking out the release tag. The ac
 | `bundle-size`   | Size of the bundle in bytes        |
 | `bundle-sha256` | SHA256 hash for integrity checks   |
 | `announced`     | Whether registration succeeded     |
-| `server-json-found` | Whether a server.json was found and uploaded |
 
 ## Permissions
 
@@ -261,18 +260,18 @@ permissions:
 ### Building
 
 The action:
-1. Detects your server type from `manifest.json` (Python or Node.js)
-2. Vendors all dependencies into the bundle (Python: `deps/`, Node: `node_modules/`)
-3. Packages everything into a `.mcpb` file using the [mcpb CLI](https://github.com/anthropics/mcpb)
-4. If a `server.json` is present, validates it and syncs the version from `manifest.json`
+1. Validates `manifest.json` (mcpb v0.4 required fields, optional reverse-DNS name override)
+2. Detects your server type from `manifest.json` (Python or Node.js)
+3. Vendors all dependencies into the bundle (Python: `deps/`, Node: `node_modules/`)
+4. Packages everything into a `.mcpb` file using the [mcpb CLI](https://github.com/anthropics/mcpb)
 
 ### Announcing
 
 When you announce to mpak.dev:
-1. The action uploads the `.mcpb` bundle (and `server.json`, if present) to the GitHub release
+1. The action uploads the `.mcpb` bundle to the GitHub release
 2. The action requests an [OIDC token](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect) from GitHub
 3. This token cryptographically proves the bundle came from your repository
-4. The registry verifies the token, registers your bundle, and fetches any `server.json` from the release
+4. The registry verifies the token and registers your bundle; the registry composes the MCP `ServerDetail` discovery shape from your `manifest.json`
 5. No API keys or secrets needed
 
 Each platform build announces its own artifact. The registry tracks all artifacts for a version, so users can install the right bundle for their system.
@@ -282,7 +281,7 @@ Each platform build announces its own artifact. The registry tracks all artifact
 To build without publishing to the public registry:
 
 ```yaml
-- uses: NimbleBrainInc/mcpb-pack@v2
+- uses: NimbleBrainInc/mcpb-pack@v3
   with:
     announce: false
 ```
@@ -293,58 +292,48 @@ You might want this if:
 - You want to test before publishing
 - You distribute through other channels
 
-## MCP Registry Discovery (server.json)
+## MCP Registry Discovery
 
-You can include a `server.json` file in your repository to make your MCP server discoverable through the [MCP Registry](https://registry.mpak.dev). This file provides metadata that the registry uses to list your server in its discovery API (`/v0.1/servers`).
+mpak automatically composes the MCP Registry's [`ServerDetail`](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/server-json/draft/server.schema.json) discovery shape from your bundle's `manifest.json` — there is no separate `server.json` file to maintain. Every announced bundle is reachable at:
 
-### Why add a server.json?
+- `GET /v1/servers/<your-name>` — latest `ServerDetail`
+- `GET /v1/servers/<your-name>/versions/<version>` — version-specific
+- `GET /v1/servers/search?q=...` — paginated search
 
-Without `server.json`, your bundle is published to mpak and installable via `mpak bundle pull`, but it won't appear in MCP Registry discovery endpoints. Adding `server.json` makes your server findable by AI clients and tools that query the registry.
+### Naming
 
-### Minimal server.json
+By default the registry assigns a reverse-DNS name mechanically from your npm-style package name:
 
-Only `name` and `description` are required:
+- `@your-org/your-server` → `dev.mpak.your-org/your-server`
 
-```json
-{
-  "name": "@your-org/your-server",
-  "description": "What your server does"
-}
-```
-
-The `version` is automatically synced from your `manifest.json` at build time.
-
-### Full example
+If you want a branded reverse-DNS name (e.g. `com.example/your-server`), set it in your manifest's `_meta`:
 
 ```json
 {
+  "manifest_version": "0.4",
   "name": "@your-org/your-server",
+  "version": "1.0.0",
   "description": "What your server does",
-  "title": "Human-Friendly Server Name",
-  "repository": {
-    "url": "https://github.com/your-org/your-repo",
-    "source": "https://github.com/your-org/your-repo"
+  "_meta": {
+    "dev.mpak/registry": {
+      "name": "com.example/your-server"
+    }
   }
 }
 ```
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | Yes | Package name (must match `manifest.json`) |
-| `description` | Yes | Short description of the server |
-| `version` | No | Synced automatically from `manifest.json` |
-| `title` | No | Human-friendly display name |
-| `repository` | No | Source repository URLs |
-| `packages` | No | Populated automatically by the registry with bundle download info |
+The override must match the upstream pattern `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$` (one slash separating the reverse-DNS namespace from the server name).
 
-### What happens at build time
+### Migration from `server.json` (v2 → v3)
 
-1. The action validates `server.json` (checks valid JSON, required fields)
-2. Syncs the `version` field from `manifest.json` into `server.json`
-3. Uploads `server.json` as a release asset alongside the `.mcpb` bundle
-4. When the registry processes the announce, it fetches `server.json` from the release and stores the metadata
+If you previously shipped a `server.json` file alongside your bundle, you can delete it. Versions of this action prior to `v3` validated and uploaded `server.json` to the GitHub release; `v3` no longer reads or uploads it. The registry composes the `ServerDetail` discovery shape from `manifest.json` instead.
 
-The `packages[]` array in the registry response is populated automatically from announced bundles. You don't need to include it in your `server.json`.
+```bash
+git rm server.json
+# Optional: add a reverse-DNS name override to manifest.json (see "Naming" above).
+git add manifest.json
+git commit -m "drop server.json (mcpb-pack@v3 composes registry metadata from manifest)"
+```
 
 ## Supported Runtimes
 
@@ -389,7 +378,7 @@ jobs:
           mkdir -p bin
           go build -o bin/server ./cmd/server
 
-      - uses: NimbleBrainInc/mcpb-pack@v2
+      - uses: NimbleBrainInc/mcpb-pack@v3
         with:
           output: "{name}-{version}-${{ matrix.os }}-${{ matrix.arch }}.mcpb"
 ```
