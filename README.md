@@ -69,7 +69,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: NimbleBrainInc/mcpb-pack@v3
 ```
 
@@ -92,7 +92,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: NimbleBrainInc/mcpb-pack@v3
 ```
 
@@ -120,7 +120,7 @@ jobs:
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: NimbleBrainInc/mcpb-pack@v3
         with:
           output: "{name}-{version}-${{ matrix.os }}-${{ matrix.arch }}.mcpb"
@@ -145,6 +145,19 @@ Each job builds and registers its own platform-specific bundle. The registry mer
 | **macOS ARM** | `macos-15-xlarge` | arm64 (M2) | 5 vCPU + 8 GPU, 14 GB |
 
 > **Note:** `macos-13` is [retiring December 2025](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/). Use `macos-15-intel` for Intel macOS builds.
+
+### Companion Action Versions
+
+Release workflows that call this action pin the same set of companion actions:
+
+| Action / setting | Pin |
+|---|---|
+| `actions/checkout` | `@v6` |
+| `actions/setup-node` (Node servers, UI builds) | `@v6` |
+| `node-version` | `'22'` (the build runtime, independent of the action runtime) |
+| `NimbleBrainInc/mcpb-pack` | `@v3` |
+
+`checkout` and `setup-node` at `@v6` run on the Node 24 action runtime. When you edit a release workflow for any reason, move its pins to this set in the same change.
 
 ### Build Only (No Publish)
 
@@ -212,7 +225,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: NimbleBrainInc/mcpb-pack@v3
         with:
           build: ${{ inputs.build }}
@@ -368,7 +381,7 @@ jobs:
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v5
         with:
