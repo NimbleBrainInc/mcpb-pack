@@ -1,0 +1,10 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "local>NimbleBrainInc/renovate-config"
+  ],
+  "description": "A composite GitHub Action other repos run. GitHub Actions only: the actions action.yml calls and the ones its own workflows use.",
+  "enabledManagers": [
+    "github-actions"
+  ]
+}
