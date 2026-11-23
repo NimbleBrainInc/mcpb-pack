@@ -6,6 +6,9 @@
 
 A GitHub Action that packages an MCP server into a `.mcpb` bundle and attaches it to your GitHub release.
 
+> [!WARNING]
+> **mcpb-pack is retired and will be archived.** Existing workflows keep running. For new ones, pack with the [mcpb CLI](https://github.com/modelcontextprotocol/mcpb) directly: `npx -y @anthropic-ai/mcpb@<version> pack <dir> <name>.mcpb`, which validates the manifest first. Then attach the file to your release with `gh release create` or `gh release upload`.
+
 ## What is this?
 
 **MCP** (Model Context Protocol) is a standard for AI assistants to interact with external tools and services. An MCP server exposes tools (like "search files" or "query database") that AI assistants can call.
