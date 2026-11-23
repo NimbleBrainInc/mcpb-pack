@@ -4,7 +4,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub release](https://img.shields.io/github/v/release/NimbleBrainInc/mcpb-pack)](https://github.com/NimbleBrainInc/mcpb-pack/releases)
 
-A GitHub Action to package MCP servers into distributable bundles and publish them to the [mpak registry](https://www.mpak.dev).
+A GitHub Action that packages an MCP server into a `.mcpb` bundle and attaches it to your GitHub release.
+
+> [!WARNING]
+> **mcpb-pack is retired and will be archived.** Existing workflows keep running. For new ones, pack with the [mcpb CLI](https://github.com/modelcontextprotocol/mcpb) directly: `npx -y @anthropic-ai/mcpb@<version> pack <dir> <name>.mcpb`, which validates the manifest first. Then attach the file to your release with `gh release create` or `gh release upload`.
 
 ## What is this?
 
@@ -12,9 +15,7 @@ A GitHub Action to package MCP servers into distributable bundles and publish th
 
 **MCPB** is a bundle format (`.mcpb` files) that packages an MCP server with all its dependencies into a single portable file. This makes MCP servers easy to distribute and install.
 
-**mpak** is a public registry where you can publish and discover MCP bundles. Think of it like npm, but for MCP servers.
-
-**This action** automates the entire workflow: build your MCP server into a bundle, attach it to your GitHub release, and register it with mpak so others can find and install it.
+**This action** builds your MCP server into a bundle with its dependencies vendored and attaches it to your GitHub release, where Claude Desktop and other MCPB hosts can install it.
 
 ## Quick Start
 
@@ -41,14 +42,12 @@ Your repository needs:
 }
 ```
 
-> **Note:** The `@scope` must match your GitHub organization or username. The registry verifies this via OIDC.
-
 2. **Your MCP server code** with stdio entrypoint:
 
 ```python
 # At end of server.py
 if __name__ == "__main__":
-    mcp.run()  # Required for mpak run / Claude Desktop
+    mcp.run()  # Required for Claude Desktop and other MCPB hosts
 ```
 
 ### Minimal Workflow
@@ -63,7 +62,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   build:
@@ -77,9 +75,6 @@ When you publish a GitHub release, this will:
 1. Vendor all dependencies into the bundle
 2. Build a `.mcpb` file
 3. Upload it to your release
-4. Register it with mpak.dev
-
-Your server is now discoverable via `mpak search` and installable via `mpak bundle pull`.
 
 ## Usage
 
@@ -126,7 +121,7 @@ jobs:
           output: "{name}-{version}-${{ matrix.os }}-${{ matrix.arch }}.mcpb"
 ```
 
-Each job builds and registers its own platform-specific bundle. The registry merges them automatically.
+Each job builds its own platform bundle and attaches it to the same release.
 
 ### Runner Reference
 
@@ -167,12 +162,11 @@ For CI validation or private servers:
 - uses: NimbleBrainInc/mcpb-pack@v3
   with:
     upload: false
-    announce: false
 ```
 
 ### Use Existing Bundle
 
-If you already build your `.mcpb` bundle separately (e.g., committed to the repo or built in a prior step), you can skip the build and just upload/announce:
+If you already build your `.mcpb` bundle separately (e.g., committed to the repo or built in a prior step), you can skip the build and just upload it:
 
 ```yaml
 - uses: NimbleBrainInc/mcpb-pack@v3
@@ -185,56 +179,8 @@ If you already build your `.mcpb` bundle separately (e.g., committed to the repo
 This is useful when:
 - Your bundle is pre-built and committed to the repository
 - You have a custom build process
-- You want to announce an existing bundle to mpak.dev
 
-The action will compute the SHA256 hash and size from the provided bundle, upload it to the release, and announce it to the registry.
-
-### Cross-Platform Bundles
-
-For pure Node.js or Python servers without native dependencies, you can announce a single bundle as cross-platform using `any`:
-
-```yaml
-- uses: NimbleBrainInc/mcpb-pack@v3
-  with:
-    platform-os: any
-    platform-arch: any
-```
-
-This registers the bundle as universal, so users on any platform can install it. The registry will serve this bundle when no platform-specific build is available.
-
-### Manual Re-announce
-
-To re-announce an existing release (e.g., if the registry was down or you're announcing to a different registry), add `workflow_dispatch` to your workflow:
-
-```yaml
-on:
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      build:
-        description: 'Build bundle'
-        type: boolean
-        default: true
-      announce:
-        description: 'Announce to registry'
-        type: boolean
-        default: true
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: NimbleBrainInc/mcpb-pack@v3
-        with:
-          build: ${{ inputs.build }}
-          announce: ${{ inputs.announce }}
-```
-
-Then trigger manually from the Actions tab, checking out the release tag. The action uses `github.ref_name` as the release tag when not triggered by a release event.
-
-> **Note:** The `upload` input only works with release events. For manual triggers, upload the bundle to the release manually or use `gh release upload`.
+The action computes the SHA256 hash and size of the provided bundle and uploads it to the release.
 
 ## Inputs
 
@@ -246,11 +192,8 @@ Then trigger manually from the Actions tab, checking out the release tag. The ac
 | `python-version` | `3.13`                                     | Python version for vendoring (if Python server)               |
 | `build`          | `true`                                     | Whether to build the bundle                                   |
 | `upload`         | `true`                                     | Whether to upload to the GitHub release                       |
-| `announce`       | `true`                                     | Whether to register with mpak.dev                             |
-| `announce-required` | `false`                                 | Whether announce failures should fail the workflow            |
-| `announce-url`   | `https://registry.mpak.dev/v1/bundles/announce` | Registry endpoint (change for self-hosted registries)         |
-| `platform-os`    |                                            | Override detected OS (darwin, linux, win32, any)              |
-| `platform-arch`  |                                            | Override detected arch (x64, arm64, any)                      |
+
+`announce`, `announce-url`, `announce-required`, `platform-os` and `platform-arch` are accepted and ignored. They served the mpak registry, which is retired, and GitHub prints a deprecation warning when a workflow still sets them.
 
 ## Outputs
 
@@ -259,14 +202,12 @@ Then trigger manually from the Actions tab, checking out the release tag. The ac
 | `bundle-path`   | Path to the generated .mcpb file   |
 | `bundle-size`   | Size of the bundle in bytes        |
 | `bundle-sha256` | SHA256 hash for integrity checks   |
-| `announced`     | Whether registration succeeded     |
 
 ## Permissions
 
 ```yaml
 permissions:
   contents: write   # Required to upload to releases
-  id-token: write   # Required for OIDC authentication with registry
 ```
 
 ## How It Works
@@ -274,80 +215,14 @@ permissions:
 ### Building
 
 The action:
-1. Validates `manifest.json` (mcpb v0.4 required fields, optional reverse-DNS name override)
+1. Validates `manifest.json` (mcpb v0.4 required fields)
 2. Detects your server type from `manifest.json` (Python or Node.js)
 3. Vendors all dependencies into the bundle (Python: `deps/`, Node: `node_modules/`)
 4. Packages everything into a `.mcpb` file using the [mcpb CLI](https://github.com/anthropics/mcpb)
 
-### Announcing
+## Listing Your Server
 
-When you announce to mpak.dev:
-1. The action uploads the `.mcpb` bundle to the GitHub release
-2. The action requests an [OIDC token](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect) from GitHub
-3. This token cryptographically proves the bundle came from your repository
-4. The registry verifies the token and registers your bundle; the registry composes the MCP `ServerDetail` discovery shape from your `manifest.json`
-5. No API keys or secrets needed
-
-Each platform build announces its own artifact. The registry tracks all artifacts for a version, so users can install the right bundle for their system.
-
-### Opting Out of Announcing
-
-To build without publishing to the public registry:
-
-```yaml
-- uses: NimbleBrainInc/mcpb-pack@v3
-  with:
-    announce: false
-```
-
-You might want this if:
-- Your server is private or internal
-- You're using a self-hosted registry
-- You want to test before publishing
-- You distribute through other channels
-
-## MCP Registry Discovery
-
-mpak automatically composes the MCP Registry's [`ServerDetail`](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/server-json/draft/server.schema.json) discovery shape from your bundle's `manifest.json` — there is no separate `server.json` file to maintain. Every announced bundle is reachable at:
-
-- `GET /v1/servers/<your-name>` — latest `ServerDetail`
-- `GET /v1/servers/<your-name>/versions/<version>` — version-specific
-- `GET /v1/servers/search?q=...` — paginated search
-
-### Naming
-
-By default the registry assigns a reverse-DNS name mechanically from your npm-style package name:
-
-- `@your-org/your-server` → `dev.mpak.your-org/your-server`
-
-If you want a branded reverse-DNS name (e.g. `com.example/your-server`), set it in your manifest's `_meta`:
-
-```json
-{
-  "manifest_version": "0.4",
-  "name": "@your-org/your-server",
-  "version": "1.0.0",
-  "description": "What your server does",
-  "_meta": {
-    "dev.mpak/registry": {
-      "name": "com.example/your-server"
-    }
-  }
-}
-```
-
-The override must match the upstream pattern `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$` (one slash separating the reverse-DNS namespace from the server name).
-
-### Migration from `server.json` (v2 → v3)
-
-If you previously shipped a `server.json` file alongside your bundle, you can delete it. Versions of this action prior to `v3` validated and uploaded `server.json` to the GitHub release; `v3` no longer reads or uploads it. The registry composes the `ServerDetail` discovery shape from `manifest.json` instead.
-
-```bash
-git rm server.json
-# Optional: add a reverse-DNS name override to manifest.json (see "Naming" above).
-git add manifest.json
-git commit -m "drop server.json (mcpb-pack@v3 composes registry metadata from manifest)"
-```
+The action publishes to your GitHub release and nowhere else. To make the server discoverable, publish a `server.json` to the [official MCP Registry](https://github.com/modelcontextprotocol/registry) with a package of `registryType: "mcpb"` whose `identifier` is the release asset's download URL and whose `fileSha256` is this action's `bundle-sha256` output.
 
 ## Supported Runtimes
 
@@ -438,7 +313,7 @@ The manifest.json for binary servers:
 ## Learn More
 
 - [MCP Documentation](https://modelcontextprotocol.io) - Model Context Protocol specification
-- [mpak Registry](https://www.mpak.dev) - Browse and search published MCP bundles
+- [MCP Registry](https://github.com/modelcontextprotocol/registry) - The official registry of MCP servers
 - [mcpb CLI](https://github.com/anthropics/mcpb) - Command-line tool for building bundles locally
 
 ## License
