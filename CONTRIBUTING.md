@@ -22,7 +22,7 @@ Reference your branch in a test workflow:
 ```yaml
 - uses: your-username/mcpb-pack@your-branch
   with:
-    announce: false  # Don't announce during testing
+    upload: false  # Don't touch a real release while testing
 ```
 
 ### CI Testing

@@ -77,7 +77,6 @@ jobs:
         uses: ./
         with:
           output: test-${{ matrix.platform }}.mcpb
-          announce: false  # Don't announce test builds
 
       - name: Verify bundle
         run: |
@@ -149,7 +148,6 @@ jobs:
           bundle-path: existing.mcpb
           build: false
           upload: false
-          announce: false
 
       - name: Verify outputs
         run: |
@@ -231,45 +229,6 @@ jobs:
               cat > manifest.json << 'EOF'
               { "manifest_version": "0.4", "name": "x/y", "version": "1.0.0", "description": "d" }
               EOF
-          - name: reverse-dns-no-slash
-            setup: |
-              cat > manifest.json << 'EOF'
-              {
-                "manifest_version": "0.4",
-                "name": "x/y",
-                "version": "1.0.0",
-                "description": "d",
-                "server": {},
-                "_meta": { "dev.mpak/registry": { "name": "no-slash" } }
-              }
-              EOF
-          - name: reverse-dns-too-short
-            setup: |
-              # Two chars: below the upstream minLength of 3
-              cat > manifest.json << 'EOF'
-              {
-                "manifest_version": "0.4",
-                "name": "x/y",
-                "version": "1.0.0",
-                "description": "d",
-                "server": {},
-                "_meta": { "dev.mpak/registry": { "name": "a/" } }
-              }
-              EOF
-          - name: reverse-dns-too-long
-            setup: |
-              # 250 chars: above the upstream maxLength of 200
-              LONG=$(printf 'a%.0s' {1..120})
-              cat > manifest.json <<EOF
-              {
-                "manifest_version": "0.4",
-                "name": "x/y",
-                "version": "1.0.0",
-                "description": "d",
-                "server": {},
-                "_meta": { "dev.mpak/registry": { "name": "${LONG}/${LONG}" } }
-              }
-              EOF
     steps:
       - uses: actions/checkout@v6
 
@@ -283,7 +242,6 @@ jobs:
         with:
           build: false
           upload: false
-          announce: false
 
       - name: Assert validation rejected the manifest
         run: |
@@ -292,35 +250,3 @@ jobs:
             exit 1
           fi
           echo "✓ Case '${{ matrix.case.name }}' correctly rejected"
-
-  # Happy-path validation: the optional reverse-DNS override is well-
-  # formed, action runs to completion (with build/upload/announce off
-  # so we only exercise validation).
-  test-manifest-validation-accepts-valid-reverse-dns:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Set up valid manifest with reverse-DNS override
-        run: |
-          cat > manifest.json << 'EOF'
-          {
-            "manifest_version": "0.4",
-            "name": "@nimblebraininc/example",
-            "version": "1.0.0",
-            "description": "d",
-            "server": {
-              "type": "python",
-              "entry_point": "server.py",
-              "mcp_config": { "command": "python", "args": ["server.py"] }
-            },
-            "_meta": { "dev.mpak/registry": { "name": "ai.nimblebrain/example" } }
-          }
-          EOF
-
-      - name: Run action — expect validation to pass
-        uses: ./
-        with:
-          build: false
-          upload: false
-          announce: false
